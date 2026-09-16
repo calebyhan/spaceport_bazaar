@@ -1,0 +1,33 @@
+{
+  "name": "Spaceport Bazaar",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "node",
+  "mounts": [
+    "source=spaceport-bazaar-node-home,target=/home/node,type=volume"
+  ],
+  "forwardPorts": [3000, 3001],
+  "portsAttributes": {
+    "3000": {
+      "label": "Bazaar dashboard"
+    },
+    "3001": {
+      "label": "Local validator"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "openai.chatgpt",
+        "anthropic.claude-code",
+        "ms-azuretools.vscode-docker",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "Prisma.prisma",
+        "zxh404.vscode-proto3"
+      ]
+    }
+  }
+}

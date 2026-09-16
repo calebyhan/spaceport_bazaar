@@ -1,0 +1,22 @@
+# Local validator output includes short-lived credentials.
+validation-credentials.json
+validation-report.json
+.local/
+
+# Environment files can contain database credentials. Commit the template only.
+.env*
+!.env.example
+
+# JavaScript/TypeScript build output.
+node_modules/
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Credentials and local state for coding assistants belong outside the repo.
+.claude/
+.codex/
+
+# Editor and OS metadata.
+.DS_Store
