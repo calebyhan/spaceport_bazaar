@@ -9,6 +9,11 @@ The authoritative protocol exercise is the supplied
 [Protobuf schema](artifacts/bazaar-protobuf-starter-linux/bazaar.proto) is the
 source of truth for every wire message.
 
+The [agent-readable handbook](docs/spaceport-bazaar-agent-readable.md) is the
+canonical gameplay and client-design reference. It complements the schema with
+the simulation rules and class objective; use the live `State.rules` snapshot
+for the configuration of a particular run.
+
 ## Development setup
 
 Use the included Dev Container. It gives macOS (including Apple Silicon) and
