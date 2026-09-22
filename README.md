@@ -127,3 +127,9 @@ scripts/start-validator.sh              Architecture-aware validator launcher
   `request_id`.
 - Follow the exact order in the supplied exercise. New commands out of order
   end the practice scenario.
+
+## Autonomous trading baseline
+
+The separate Node/TypeScript worker, deterministic policy, and local validation
+commands are documented in [docs/autonomous-worker.md](docs/autonomous-worker.md).
+Start with `npm ci`, `npm run test:worker`, and `npm run test:validator`.
