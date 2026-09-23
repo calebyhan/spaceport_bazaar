@@ -60,7 +60,8 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
     return aTick < bTick ? -1 : aTick > bTick ? 1 : resources.indexOf(a) - resources.indexOf(b);
   });
   const expiry = min(s.rules.duration_ticks, s.tick + min(config.ttl, s.rules.max_offer_ttl_ticks));
-  if (needs.length && !commitments.length && s.rules.max_open_outgoing_offers > 0n && expiry > s.tick) {
+  const openOfferRoom = BigInt(commitments.length) < min(config.maxOpenOffers, s.rules.max_open_outgoing_offers);
+  if (needs.length && openOfferRoom && s.rules.max_open_outgoing_offers > 0n && expiry > s.tick) {
     const need = needs[0];
     for (const ad of s.advertisements.items) {
       if (ad.station_id === s.self_station_id || !active(ad.status, ad.expires_tick, s.tick) || !ad.selling.items.includes(resources.indexOf(need) + 1)) continue;

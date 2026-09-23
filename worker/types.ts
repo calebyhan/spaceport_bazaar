@@ -31,7 +31,12 @@ export interface Snapshot {
   protocol_version: string; run_id: string; snapshot_sequence: bigint; world_version: bigint;
   tick: bigint; phase: number; self_station_id: string; rules: Rules;
   self: { inventory: Bundle; health: bigint; failed_once: boolean; first_failure_tick: Nullable<bigint>;
-    upkeep_per_tick: Bundle; last_production: Bundle; specialty: number };
+    upkeep_per_tick: Bundle; last_production: Bundle; specialty: number;
+    last_unmet_upkeep: Bundle; fully_supplied_ticks: bigint; shortage_ticks: bigint;
+    current_shortage_streak: bigint; longest_shortage_streak: bigint;
+    produced_total: Bundle; consumed_total: Bundle; unmet_total: Bundle;
+    imported_total: Bundle; exported_total: Bundle };
+  outcome: Nullable<{ collective_success: Nullable<boolean>; self_failed: boolean; aborted: boolean }>;
   offers: { items: Offer[] }; advertisements: { items: Advertisement[] };
   request_results: { items: Result[] }; transactions: { items: unknown[] };
 }
@@ -43,10 +48,10 @@ export type Command = Exclude<Action, { kind: 'wait' }>;
 export interface Pending { requestId: string; action: Command; tick: bigint; result?: Result }
 export interface Config {
   reserveTicks: bigint; quantity: bigint; giveUnits: bigint; receiveUnits: bigint;
-  ttl: bigint; cooldownTicks: bigint; version: string;
+  ttl: bigint; cooldownTicks: bigint; maxOpenOffers: bigint; version: string;
 }
 export const defaultConfig: Config = {
   reserveTicks: 2n, quantity: 1n, giveUnits: 1n, receiveUnits: 1n,
-  ttl: 2n, cooldownTicks: 2n, version: 'baseline-1',
+  ttl: 2n, cooldownTicks: 2n, maxOpenOffers: 2n, version: 'baseline-2',
 };
 export interface Memory { attempted: Record<string, bigint> }

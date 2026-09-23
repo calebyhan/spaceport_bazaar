@@ -4,7 +4,11 @@ import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { json } from './policy';
 import type { Snapshot } from './types';
-export interface RecordEntry { connection?: { processId: string; epoch: number }; kind: string; payload: unknown; direction?: 'internal' | 'inbound' | 'outbound'; requestId?: string }
+export interface RecordEntry {
+  connection?: { processId: string; epoch: number }; kind: string; payload: unknown;
+  direction?: 'internal' | 'inbound' | 'outbound'; requestId?: string;
+  sequence?: number; at?: string; mono?: string;
+}
 export interface Sink { append(entry: RecordEntry): Promise<void>; }
 export function acquireLock(run: string, station: string): () => void {
   // Host-wide key, independent of checkout, endpoint aliases, and journal path.
@@ -26,7 +30,9 @@ export class Journal implements Sink {
     try { fsyncSync(directory); } finally { closeSync(directory); }
   }
   async append(entry: RecordEntry) {
-    const bytes = Buffer.from(json({ ...entry, at: new Date().toISOString() }) + '\n');
+    // Records normally already carry timing metadata from Engine.record();
+    // this fallback only matters for direct/test callers that bypass it.
+    const bytes = Buffer.from(json({ at: new Date().toISOString(), ...entry }) + '\n');
     let offset = 0;
     while (offset < bytes.length) offset += writeSync(this.fd, bytes, offset, bytes.length - offset);
     fsyncSync(this.fd);
@@ -50,7 +56,7 @@ export class SupabaseSink implements Sink {
       if (response.error) throw new Error('Snapshot persistence failed');
     }
     if (!this.runId) return;
-    const response = await this.client.from('events').insert({ run_id: this.runId, direction: entry.direction ?? 'internal', kind: entry.kind, request_id: entry.requestId, source_sequence: entry.kind === 'state' ? payload.snapshot_sequence : undefined, payload: { ...payload, _connection: entry.connection } });
+    const response = await this.client.from('events').insert({ run_id: this.runId, direction: entry.direction ?? 'internal', kind: entry.kind, request_id: entry.requestId, source_sequence: entry.kind === 'state' ? payload.snapshot_sequence : undefined, payload: { ...payload, _connection: entry.connection, _sequence: entry.sequence, _at: entry.at, _mono: entry.mono } });
     if (response.error) throw new Error('Event persistence failed');
     if (entry.kind === 'command') {
       const response = await this.client.from('commands').upsert({ run_id: this.runId, request_id: entry.requestId, command_type: payload.action.kind, status: 'prepared', command: payload }, { onConflict: 'run_id,request_id' });

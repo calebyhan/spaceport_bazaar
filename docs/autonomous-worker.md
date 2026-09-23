@@ -136,8 +136,18 @@ the offered resource; lexical action order chooses between equally suitable
 suppliers. No planet ID encodes specialty. No supplier learning or pricing
 model is present.
 
-At most one outgoing offer (confirmed or pending) is permitted. Pending commands
-block additional commands entirely. Nonurgent proposals and advertisements
+At most `config.maxOpenOffers` outgoing offers (confirmed or pending) are
+permitted concurrently, capped by the live `max_open_outgoing_offers` rule
+(default 2; `BAZAAR_MAX_OPEN_OFFERS` overrides it). Raised from the original
+single-offer baseline: exploratory simulation across many strategies and
+scenarios (`docs/game-mechanics-learnings.md`) found offer/response
+throughput to be the dominant lever for survival, far more than reserve size
+or gift-giving, and that most of the gain is already captured at two
+concurrent offers. Each additional offer still goes through the same safety
+checks (`outgoingSafe`) as the first. Pending commands still fully serialize:
+one unreconciled command blocks all others regardless of `maxOpenOffers` -
+that constraint is about safely recovering an ambiguous outcome, not
+throughput, and is unchanged. Nonurgent proposals and advertisements
 leave one per-tick command slot and one request-record slot unused. Acceptance
 and withdrawal may use the final slot. Failed results count against observed
 quotas. `RATE_LIMITED` blocks until `retry_after_tick`; request capacity exhaustion
@@ -215,9 +225,32 @@ an out-of-range database clock causes a safe persistence stop. Remote database
 permissions and distributed control are not validated by local tests.
 
 Every journal/event record includes a random worker-process ID plus a connection
-epoch. This also distinguishes sequence resets across process restarts. The
+epoch, a local monotonic sequence number, a UTC timestamp, and a monotonic
+(`process.hrtime`) timestamp for latency measurement immune to clock jumps.
+This also distinguishes sequence resets across process restarts. The
 current snapshot remains the raw authoritative observation; no transaction is
 re-applied during database mirroring.
+
+Closing the gaps against `docs/real-run-logging-note.md`, the journal also
+records: one immutable `manifest` entry per run (server/local identifiers,
+protocol/subprotocol/schema versions, app version or Git commit, endpoint host
+and port without credentials, live rules, initial state, policy config); a
+`raw` entry per inbound frame and raw bytes on outbound `ready`/`sync`/`command`
+entries (base64, alongside the existing decoded payload); a `message-error`
+entry with the raw bytes for any frame that fails to decode or validate,
+before failing closed; WebSocket-level `ws-open`/`ws-close`/`ws-ping`/
+`ws-pong`/`ws-error`/`ws-auth-failure`/`ws-reconnect-scheduled` entries (never
+including headers or credential text); derived `market-event` entries per
+observed state (advertisement/offer lifecycle, command rejections, resource
+risk-threshold crossings) and one `tick-summary` entry per elapsed tick,
+computed in `worker/analysis.ts` from consecutive snapshots and never a
+substitute for the raw records; and one final `run-summary` entry on shutdown
+(final state, failure/collective-success outcome, cumulative counters,
+unresolved offers/advertisements, final policy memory). The persistence-then-
+decide sequencing intentionally still runs synchronously with respect to
+decisions - the logging note's "never block" guidance is not applied there,
+since it would weaken the stronger existing guarantee of never deciding on
+data that is not yet durably logged.
 
 Coverage excludes generated bindings and test fixtures. The measured suite
 covers all domain and policy lines; remaining gaps include the CLI's live socket

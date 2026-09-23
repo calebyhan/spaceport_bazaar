@@ -104,6 +104,14 @@ test('a safe outstanding offer is not withdrawn merely because its desired resou
   s.offers.items = [offer({ offer_id: 'out-safe', proposer_id: 'ours', recipient_id: 'supplier-z', give: bundle(1n,0n,0n), receive: bundle(0n,1n,0n), expires_tick: 2n })];
   assert.notEqual(decide(s, [], memory(), config).action.kind, 'withdraw');
 });
+test('raising maxOpenOffers lets a second safe offer join an existing one; the old default forbids it', () => {
+  const s = snapshot();
+  s.offers.items = [offer({ offer_id: 'out-safe', proposer_id: 'ours', recipient_id: 'supplier-z', give: bundle(1n,0n,0n), receive: bundle(0n,1n,0n), expires_tick: 2n })];
+  s.advertisements.items = [{ advertisement_id: 'peer-ad', station_id: 'supplier-y', status: 1, selling: { items: [2] }, seeking: { items: [1] }, expires_tick: 5n }];
+  assert.equal(decide(s, [], memory(), config).action.kind, 'offer', 'maxOpenOffers: 2n (default) permits a second concurrent offer');
+  const tight = { ...config, maxOpenOffers: 1n };
+  assert.notEqual(decide(s, [], memory(), tight).action.kind, 'offer', 'maxOpenOffers: 1n restores the single-offer behavior');
+});
 test('delayed settlement consumes only available upkeep, never creates negative inventory debt', () => {
   const s = snapshot(); s.self.inventory = bundle(20n,0n,8n);
   const check = tradeSafety(s, [], bundle(1n,0n,0n), bundle(0n,2n,0n), config, 1n);

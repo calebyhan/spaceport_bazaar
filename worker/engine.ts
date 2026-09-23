@@ -6,6 +6,7 @@ import { decide, fingerprint } from './policy';
 import { StateStore } from './state';
 import type { RecordEntry, Sink } from './persistence';
 import { exercise } from './exercise';
+import { deriveMarketEvents, summarizeTick } from './analysis';
 export interface Transport { send(bytes: Uint8Array): void; close(): void }
 export interface EngineOptions {
   sink: Sink; config?: Config; exercise?: boolean; previous?: RecordEntry[];
@@ -40,6 +41,7 @@ export class Engine {
   private capacityExhausted = false;
   private syncTimer?: NodeJS.Timeout;
   private restored = false;
+  private recordSequence = 0;
   readonly config: Config;
   constructor(private options: EngineOptions) { this.config = options.config ?? defaultConfig; }
   connect(transport: Transport) {
@@ -55,8 +57,12 @@ export class Engine {
     if (this.stopped) return;
     this.stopped = true; clearTimeout(this.syncTimer); this.transport?.close(); this.options.fatal?.();
   }
-  private record(entry: RecordEntry) {
-    const record = { ...entry, connection: { processId: this.processId, epoch: this.state.epoch } };
+  // Public so main.ts can attach the run manifest and transport-level
+  // (WebSocket open/close/reconnect/etc.) events to the same journal, with
+  // the same connection/sequence/timestamp stamping as internal records.
+  record(entry: RecordEntry) {
+    const record = { ...entry, connection: { processId: this.processId, epoch: this.state.epoch },
+      sequence: this.recordSequence++, at: new Date().toISOString(), mono: process.hrtime.bigint().toString() };
     this.persistence = this.persistence.then(() => this.options.sink.append(record));
     // Never send another command after a persistence error. Do not log raw
     // transport/database exceptions: they can contain endpoint credentials.
@@ -69,15 +75,25 @@ export class Engine {
     const fields = { type: 1, protocol_version: '2.0', run_id: s.run_id };
     if (kind === 'ready') this.readySequence = s.snapshot_sequence;
     const message = { [kind]: kind === 'ready' ? { ...fields, ready: true, snapshot_sequence: this.readySequence } : fields };
-    this.record({ kind, direction: 'outbound', payload: message });
-    this.transport.send(encode(message));
+    const bytes = encode(message);
+    this.record({ kind, direction: 'outbound', payload: { message, raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length } });
+    this.transport.send(bytes);
   }
   receive(epoch: number, bytes: Uint8Array, binary = true) {
     if (this.stopped || epoch !== this.state.epoch) return;
     try {
       if (!binary) throw new Error('Text frames are unsupported');
-      this.message(epoch, decode(bytes));
-    } catch { this.fail(); }
+      this.message(epoch, decode(bytes), bytes);
+    } catch (error) {
+      // Preserve the raw evidence for a frame that failed to decode or
+      // validate, before failing closed. Never log the raw transport error
+      // object itself: it can carry endpoint/credential text.
+      this.record({ kind: 'message-error', direction: 'inbound', payload: {
+        raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length,
+        error: error instanceof Error ? error.message : 'Unknown message error',
+      } });
+      this.fail();
+    }
   }
   private restore(s: Snapshot) {
     if (this.restored) return;
@@ -96,19 +112,35 @@ export class Engine {
     }
     this.state.pending = [...pending.values()];
   }
-  private message(epoch: number, msg: ServerMessage) {
+  private message(epoch: number, msg: ServerMessage, bytes: Uint8Array) {
     const value = msg.state ?? msg.result ?? msg.readiness ?? msg.protocol_error!;
     if (value.protocol_version !== '2.0') throw new Error('Protocol mismatch');
     const run = typeof value.run_id === 'string' ? value.run_id : value.run_id.value;
     if (this.identity && run && run !== this.identity) throw new Error('Run changed');
+    // One record per physical frame, independently reconstructable without
+    // cross-referencing the derived state/result/readiness records below.
+    this.record({ kind: 'raw', direction: 'inbound', requestId: msg.result?.request_id ?? msg.protocol_error?.request_id.value, payload: {
+      raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length, decoded: msg, run,
+      tick: msg.state?.tick, worldVersion: msg.state?.world_version, snapshotSequence: msg.state?.snapshot_sequence,
+    } });
     if (msg.state) {
       const s = msg.state;
       // Bound CPU work rather than blocking the receive loop on exotic rules.
       if (s.rules.duration_ticks - s.tick > 10000n || s.rules.max_offer_ttl_ticks > 10000n) throw new Error('Run exceeds supported forecast size');
       if (this.station && this.station !== s.self_station_id) throw new Error('Station changed');
       if (!this.identity) { this.options.identity?.(s); this.identity = s.run_id; this.station = s.self_station_id; this.restore(s); }
+      const previousSnapshot = this.state.snapshot;
       if (!this.state.observe(epoch, s)) return;
       this.record({ kind: 'state', direction: 'inbound', payload: s });
+      // Derived views (docs/real-run-logging-note.md's "Market-observation
+      // timeline" and "Tick summary"), never a substitute for the raw records
+      // just above and below.
+      for (const marketEvent of deriveMarketEvents(previousSnapshot, s, this.config)) {
+        this.record({ kind: 'market-event', direction: 'inbound', payload: marketEvent });
+      }
+      if (previousSnapshot && s.tick > previousSnapshot.tick) {
+        this.record({ kind: 'tick-summary', payload: summarizeTick(previousSnapshot, s, this.config) });
+      }
       for (const r of s.request_results.items) this.record({ kind: 'result', direction: 'inbound', requestId: r.request_id, payload: r });
       if (!this.state.pending.length) clearTimeout(this.syncTimer);
       if (this.readySequence === undefined) this.control('ready');
@@ -177,7 +209,7 @@ export class Engine {
         const pending: Pending = { requestId: randomUUID(), action, tick: s.tick };
         const bytes = this.commandBytes(s, pending);
         if (BigInt(bytes.length) > s.rules.max_command_bytes || bytes.length > 16384) throw new Error('Command too large');
-        await this.record({ kind: 'command', direction: 'outbound', requestId: pending.requestId, payload: { ...pending, run: s.run_id, epoch } });
+        await this.record({ kind: 'command', direction: 'outbound', requestId: pending.requestId, payload: { ...pending, run: s.run_id, epoch, raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length } });
         await new Promise<void>(resolve => setImmediate(resolve));
         if (s !== this.state.snapshot || epoch !== this.state.epoch || !this.ready || this.stopped) {
           await this.record({ kind: 'cancelled', requestId: pending.requestId, payload: { reason: 'New observation before transmission' } });
