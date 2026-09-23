@@ -20,3 +20,6 @@ coverage/
 
 # Editor and OS metadata.
 .DS_Store
+
+# Downloaded environment credentials stay local.
+env.download
