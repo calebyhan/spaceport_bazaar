@@ -24,7 +24,7 @@ for (const scenario of ['cooperative', 'low-stock', 'production-drop'] as const)
       s.self.inventory = add(subtract(s.self.inventory, pay), gain);
       peer = add(subtract(peer, gain), pay);
       o.status = 2; o.closed_tick = { value: s.tick }; o.transaction_id = { value: `tx-${++id}` };
-      s.transactions.items.push({ transaction_id: o.transaction_id.value, offer_id: o.offer_id, proposer_id: o.proposer_id, recipient_id: o.recipient_id, give: o.give, receive: o.receive, settled_tick: s.tick, settled_version: ++s.world_version });
+      s.transactions.items.push({ transaction_id: `tx-${id}`, offer_id: o.offer_id, proposer_id: o.proposer_id, recipient_id: o.recipient_id, give: o.give, receive: o.receive, settled_tick: s.tick, settled_version: ++s.world_version });
     };
     const handle = (bytes: Uint8Array) => {
       try {

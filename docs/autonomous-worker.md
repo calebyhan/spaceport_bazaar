@@ -50,7 +50,7 @@ sh scripts/start-validator.sh
 ```sh
 BAZAAR_ENDPOINT=ws://127.0.0.1:3001/ws \
 BAZAAR_CREDENTIAL_FILE=validation-credentials.json \
-BAZAAR_JOURNAL=.local/exercise.jsonl npm run worker:exercise
+BAZAAR_JOURNAL_DIR=.local/exercise-journal npm run worker:exercise
 ```
 
 The credential file selects P01 by default (`BAZAAR_STATION_ID` overrides it).
@@ -72,8 +72,14 @@ The endpoint must be `ws://` or `wss://`. Both endpoint and credentials are runt
 configuration. Nothing loads `.env.local` implicitly, and no remote connection
 is made by the test suite except the locally launched validator socket.
 
-The default journal is `.local/worker.jsonl`. Keep it across restarts. To mirror
-records into an **already provisioned and authorized** Supabase database, add
+The default journal directory is `.local/journal`; each run gets its own
+`<timestamp>-<station>-<run_id>.jsonl` file there, so old runs are never
+overwritten or appended into. Restarting into the same server run_id (a crash
+recovery, not a fresh run) resumes into that same file — the process finds it
+by scanning the directory for the most recent file that has no `run-summary`
+record and reusing it only if its own records name that same run_id;
+otherwise it starts a new file. Keep the whole directory across restarts. To
+mirror records into an **already provisioned and authorized** Supabase database, add
 `SUPABASE_URL` and `SUPABASE_SECRET_KEY` to the worker environment and explicitly
 run `npm run worker -- --supabase`. This reuses `runs`, `events`, `commands`, and
 `current_snapshots`; it needs no migration. The worker never applies migrations.
@@ -89,14 +95,167 @@ snapshot, connection epoch, policy/config version, liabilities, reserve bundle,
 tick-by-tick wait forecast, action and rationale. Results and subsequent states
 are linked through request IDs in the journal and optional database mirror.
 
-Defaults are a two-tick reserve, one unit per offer, a 1:1 opening ratio, a
-two-tick TTL, and two-tick cooldown. Reserve is capped by remaining upkeep ticks;
-TTL is capped by live limits and run end. All config quantities must be positive
-integers. `GIVE_UNITS` and `RECEIVE_UNITS` multiply `QUANTITY` independently.
+The `market` policy (worker/policy.ts, with the market model in
+worker/market.ts) replaced `baseline-2` after run-37. Version `market-4` adds
+the run-39 fixes and `market-5` the run-40 fixes, described under **Run-39
+changes** and **Run-40 changes** below. In run-37 our station
+starved of food while holding over 200 spare components. It never originated
+an offer, and it refused favourable trades once food had doomed the forecast.
+Defaults, all overridable with the matching `BAZAAR_*` variable in
+`.env.example`, all positive integers:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `reserveTicks` | 2 | Hard safety floor, in ticks of upkeep, no trade may breach |
+| `planTicks` | 40 | Ticks of upkeep the plan holds for resources we produce enough of; others plan for the whole run |
+| `urgentTicks` | 10 | Cover below which a need is asked for at par |
+| `stockpileTicks` | 10 | Extra ticks held of a resource the market is short of |
+| `lot` | 6 | Most units received per proposal |
+| `ttl` / `cooldownTicks` | 3 / 1 | Proposal lifetime; retry spacing for identical terms |
+| `maxOpenOffers` | 8 | Concurrent outgoing offers, capped by the live rule |
+| `maxPremiumPct` / `premiumStepPct` | 50 / 25 | Opening premium and ladder step |
+| `maxParMisses` | 2 | Unanswered par offers before a station/pair rests |
+| `ladderWindowTicks` | 30 | How far back offer history counts |
+| `parRetryTicks` | 3 | After the misses limit, ticks between par retries while still needed |
+| `adTtl` | 12 | Advertisement lifetime, capped by the live rule |
+| `maxInFlight` | 3 | Commands awaiting a result at once |
+
+Everything the policy believes comes from the snapshot alone. The server keeps
+every offer and transaction involving us in each snapshot, so decisions stay
+deterministic and replayable without extra policy memory.
+
+**Price floor.** We never receive fewer units than we give: every accepted
+bundle and every proposal is at par or better for us. There are no outbound
+gifts. Inbound gifts are accepted when safe.
+
+**Counterparty model.** For each station, the model collects the evidence that
+it can supply each resource. From weakest to strongest: it advertised the
+resource, it offered it to us, or a trade of it settled. The model also records
+what the station wants: what it seeks, what it recently asked of us, and what it
+accepted from us. It infers a specialty when one supplied resource clearly
+leads. Offers go only to stations with supply evidence. When a station's wants
+are known, we pay with something it wants.
+
+**Plan and value.** Supply is spendable stock plus conservative production over
+the horizon. Before the first tick, the specialty is assumed to cover its own
+upkeep. The plan's target is own upkeep plus any relay and stockpile amounts.
+Each resource gets a value:
+
+- **Base value** comes from our coverage of it: short resources are worth up to
+  2, surplus resources as little as 0.5.
+- **Market pressure** adds 0.1 per station seeking the resource more than
+  sellers offer it, within ±0.3.
+
+A trade is worth making only when the value it brings in exceeds the value it
+pays out.
+
+**Multi-hop sourcing.** Sometimes every supplier of a resource we need wants
+only resources we cannot spare. The plan then adds a relay target for one of
+those resources that another station sells, and values it at 0.9 × the needed
+resource. We buy the currency first, then pay it to the supplier.
+
+**Buy early, sell high.** The plan buys toward a 40-tick target from tick 0
+rather than waiting for the safety reserve. When more stations seek a resource
+than sell it, the plan also stockpiles it. Stockpiled units count as sellable.
+Without any need for a resource, the policy takes it only at a real premium
+(brokerage).
+
+**Pricing ladder.** Rungs are the distinct whole-unit payments the premium
+ladder yields for the lot, for example 4, 5 and 6 for a 6-unit lot. The ask
+opens:
+
+1. at par if what we receive is urgent;
+2. otherwise at the price that last cleared with that station for that pair;
+3. otherwise at the top premium if the station or the market wants what we pay;
+4. otherwise one rung below the top.
+
+Each unanswered (expired) offer since the last acceptance steps down one rung.
+After `maxParMisses` unanswered par offers, the pair rests until the window
+passes or the station accepts. Only one open ask per station and resource is
+kept.
+
+**Accepting.** An inbound offer is accepted when it is at or above par, raises
+our value, and passes the safety checks below. The forecast no longer has to
+improve. That extra requirement is why run-37 refused 5 water for 4 components
+at tick 46.
+
+**Run-39 changes.** Run-39 survived all 120 ticks but went 5 food short. The
+server slowed to 1.5–3 second round trips while ticks ran about 1 second apart.
+Several problems made that worse:
+
+- 39 of our commands went to stations that had already failed.
+- 4 offers had already expired when the server processed them.
+- We sold 6 food early, and later ran exactly that short.
+
+The fixes:
+
+- **Failed stations.** A `STATION_FAILED` result for one of our offers marks its
+  recipient failed for the rest of the run. Failure is permanent, and no
+  snapshot records it. The station is dropped from the market model, so it
+  gets no offers and no longer counts as a seller or seeker.
+- **Lag-aware expiry.** The engine records how many ticks after sending the
+  server processed each command, and keeps the last eight. Offers expire at
+  tick + `ttl` + the largest recent lag, capped by the live rule.
+- **Whole-run spare.** A resource can be paid only up to its spare amount:
+  stock plus production beyond upkeep for the entire remaining run, not just
+  the plan horizon. Units held as relay currency can also be paid. Anything
+  may be paid to cover an urgent need, still subject to the safety checks.
+  So a resource we do not produce is sold only when stock alone covers the
+  rest of the run. The advertisement's selling list uses the same rule.
+- **Bids as prices.** The highest recent ratio a peer offered us per unit it
+  asked for raises that resource's value: +1 for a 3:1 bid, capped there.
+  Advertised supply counts toward a resource's sellers only if the station
+  has traded with us.
+- **Cooldown lift.** Unanswered terms still wait out their cooldown. Terms
+  whose latest offer was accepted may be repeated at once. Previously each
+  accepted ask to a proven supplier locked out the next one for about
+  `ttl` + 1 ticks.
+- **Several commands in flight.** See the in-flight paragraph below.
+- **Journal size.** Each request result is journaled once, not once per
+  snapshot that repeats it.
+
+**Run-40 changes.** Run-40 failed at tick 103, with water gone from tick 83
+while we held over 190 components. Two things caused it:
+
+- **Horizon too short.** By tick 17 we held enough water for the 40-tick plan.
+  So we offered our only water supplier, P08, 1 unit per tick, and P08
+  accepted every offer through tick 31.
+- **Ladder rested too long.** After two unanswered par offers, we sent P08 no
+  water offers for 26 ticks. P08 never accepted again, and by tick 64 peers
+  were bidding 8 components per water.
+
+The fixes:
+
+- **Whole-run buying.** A resource whose planning production is below upkeep
+  is planned over the whole remaining run, not `planTicks`. Its buying room is
+  everything still needed to finish, so proposals go out in full lots while a
+  supplier is selling.
+- **Par retries.** After `maxParMisses` unanswered par offers, a pair we still
+  need is retried at par once `parRetryTicks` have passed since the last one
+  expired. A pair we no longer need still rests.
+- **Bids trigger stockpiling.** A peer bidding above par for a resource now
+  marks it scarce enough to stockpile, as seekers outnumbering sellers already
+  did.
+- **Per-command sync timers.** Each in-flight command has its own two-second
+  timer. It records `uncertain` and syncs only if that command still has no
+  result. Previously each send replaced the one shared timer, and it fired
+  even when results had arrived.
+- **Slimmer wait decisions.** Wait decisions reference their snapshot by
+  sequence, world version, and tick, and omit the forecast. The state record
+  already holds the full snapshot. Action decisions still carry everything.
+- **Keepalive ping.** The client pings every 30 seconds, since idle lobby
+  sockets dropped with code 1006 about every two minutes.
+
+**Advertisement.** The advertisement is whatever the plan will actually trade.
+Selling lists every resource with units beyond own and relay needs, which may
+include non-specialties. Seeking lists unmet own or relay needs. It is
+republished only when its content changes or it expires.
 
 Forecasts run through the end of the simulation using live upkeep, health cap,
-shortage damage, and recovery. Each point follows production (zero assumed),
-upkeep, then damage or recovery. Failure latches even if health later recovers.
+shortage damage, and recovery. Each point follows production, upkeep, then
+damage or recovery. Production is the conservative estimate: the smaller of the
+latest and the average observed rate per resource, and zero before the first
+tick. Failure latches even if health later recovers.
 Current liabilities are subtracted before forecasting: any still-open offer
 could settle now, including one expiring at the next tick. Once spent, those
 resources do not return at expiry. A confirmed unfilled offer stops being a
@@ -105,10 +264,9 @@ uncertain until reconciled. Incoming resources on open offers are not counted.
 
 For an immediate exchange, payment must be affordable after commitments. A
 station currently at reserve must retain reserve. When already below reserve,
-a spending exchange must weakly improve health at **every** future tick and
-strictly improve it at least once. It must not turn a surviving forecast into a
-failure or move projected failure earlier. A free useful gift cannot spend
-resources and still undergoes affordability and failure checks.
+a spending exchange may not lower forecast health at any future tick. It must
+not turn a surviving forecast into a failure or move projected failure earlier.
+Gifts still undergo affordability and failure checks.
 
 For a new proposal, reserve the selling resource through the last possible
 acceptance tick plus the remaining reserve window. Check the conditional
@@ -124,30 +282,34 @@ Candidates compare lexicographically, with no weighted score:
 1. Later failure tick (survival through run end outranks any failure).
 2. Higher minimum forecast health, including current health.
 3. Less total shortage damage through run end.
-4. Smaller total reserve deficit.
-5. On otherwise equal outcomes: unsafe-offer withdrawal, useful gift,
-   shortage-improving exchange, supplier proposal, advertisement, wait.
-6. Canonical action JSON in ascending order breaks remaining ties.
+4. More value realized now (accepted exchanges and gifts).
+5. Kind: unsafe-offer withdrawal, gift, exchange, proposal, advertisement, wait.
+6. More value a proposal would realize if accepted.
+7. Stronger supply evidence for the proposal's counterparty.
+8. Canonical action JSON in ascending order breaks remaining ties.
 
-Wait participates as a baseline; worse candidates are discarded. Missing
-resources are ordered by whole upkeep ticks remaining, then water, food,
-components. Suppliers must currently advertise the wanted resource and seek
-the offered resource; lexical action order chooses between equally suitable
-suppliers. No planet ID encodes specialty. No supplier learning or pricing
-model is present.
+Wait participates as a baseline; worse candidates are discarded.
 
 At most `config.maxOpenOffers` outgoing offers (confirmed or pending) are
-permitted concurrently, capped by the live `max_open_outgoing_offers` rule
-(default 2; `BAZAAR_MAX_OPEN_OFFERS` overrides it). Raised from the original
-single-offer baseline: exploratory simulation across many strategies and
-scenarios (`docs/game-mechanics-learnings.md`) found offer/response
-throughput to be the dominant lever for survival, far more than reserve size
-or gift-giving, and that most of the gain is already captured at two
-concurrent offers. Each additional offer still goes through the same safety
-checks (`outgoingSafe`) as the first. Pending commands still fully serialize:
-one unreconciled command blocks all others regardless of `maxOpenOffers` -
-that constraint is about safely recovering an ambiguous outcome, not
-throughput, and is unchanged. Nonurgent proposals and advertisements
+permitted concurrently, capped by the live `max_open_outgoing_offers` rule.
+Each additional offer still goes through the same safety
+checks (`outgoingSafe`) as the first.
+
+Up to `config.maxInFlight` commands may await results at once. The validator
+exercise stays at one. Every in-flight command is debited while it awaits
+settlement:
+
+- A pending offer counts as a liability.
+- A pending acceptance holds back what the offer would take from us, until a
+  snapshot shows the offer closed.
+- Incoming resources are never credited early.
+
+An action identical to one in flight is never sent, and a pending
+advertisement blocks another advertisement change. A command with no result
+occupies its slot and keeps its debit until reconciled. If every slot is
+ambiguous, trading stops, as it did before in-flight commands.
+
+Nonurgent proposals and advertisements
 leave one per-tick command slot and one request-record slot unused. Acceptance
 and withdrawal may use the final slot. Failed results count against observed
 quotas. `RATE_LIMITED` blocks until `retry_after_tick`; request capacity exhaustion
@@ -162,19 +324,23 @@ identical proposals with fresh request IDs.
 The receive handler immediately replaces in-memory facts, fences callbacks by
 connection epoch, and enqueues persistence. The single submission loop waits for
 persistence, decides, persists the decision and prepared command, and checks the
-snapshot identity and epoch again immediately before `send`. New state during
-any await invalidates the prepared action and records a cancellation. A queued
+snapshot identity, epoch, and result revision again immediately before `send`.
+New state, or a result for any in-flight command, during any await invalidates
+the prepared action and records a cancellation. After each send, the loop
+decides again while in-flight slots remain. A queued
 command never gets a speculative balance update.
 
 Readiness is repeated per connection and must match the acknowledged sequence.
 Only RUNNING permits new trading. READY, PAUSED, FINISHED, ABORTED and permanent
 failure stop new actions. Reconnect uses bounded exponential delay; authentication,
-protocol mismatch, malformed frames and server fencing fail closed. `ws` handles
-ping/pong controls; application messages must be binary Protobuf.
+protocol mismatch, malformed frames and server fencing fail closed. `ws` answers
+server pings, and the client sends its own every 30 seconds; application messages must be binary Protobuf.
 
-A missing outcome causes one `sync` after two seconds. New connection snapshots
+A command with no result after two seconds causes one `sync`, timed per
+command. New connection snapshots
 and request results reconcile the original ID. An absent result remains
-ambiguous and blocks replacement actions indefinitely. The engine's
+ambiguous indefinitely: it keeps its in-flight slot and debit, and its action
+is never repeated. The engine's
 `retryRecorded` method permits only byte-equivalent retries with the original
 ID and a known recorded result; the server returns stored evidence without
 repeating the action. There is deliberately no automatic replay of an absent
@@ -215,10 +381,21 @@ ticks include normal production, zero starting food/low stocks, and specialty
 production dropping to zero after one tick. These are local simulations, not
 evidence of success against arbitrary classmates or a complete reference server.
 
-The baseline can wait too long or refuse useful risky trades because it assumes
-zero production, credits no open incoming promise, serializes commands, and
-preserves capacity. There is no guarantee of survival when counterparties stop
-helping. Forecast work is bounded to 10,000 remaining ticks; larger runs fail
+`worker/tests/strategy.test.ts` covers the market strategies. It checks
+horizon planning, advertising the plan, value-based acceptance (including the
+run-37 tick-46 case), the at-par floor, the pricing ladder (premium, step-down,
+rest, reopening at the cleared price), urgency at par, multi-hop sourcing,
+scarcity stockpiling, and counterparty evidence. The run-39 fixes each have
+tests too: failed stations, lag-aware expiry, whole-run spare, bids, verified
+sellers, the cooldown lift, and in-flight debits. The run-40 fixes are
+covered too: whole-run buying, par retries, and bid-triggered stockpiling. `engine.test.ts` covers
+filling several in-flight slots, cancelling a command when a result arrives
+mid-preparation, and journaling each result once.
+
+The policy still credits no open incoming promise and preserves capacity. Values and thresholds are heuristics, not fitted to live
+data. The pricing ladder assumes counterparties accept at or above some fixed
+ratio. It sends no probe offers to stations with no supply evidence. There is
+no guarantee of survival when counterparties stop trading. Forecast work is bounded to 10,000 remaining ticks; larger runs fail
 closed. The journal is append-only and is not compacted. The existing PostgreSQL
 bigint columns have signed 64-bit bounds; wire values remain exact in JSON, but
 an out-of-range database clock causes a safe persistence stop. Remote database

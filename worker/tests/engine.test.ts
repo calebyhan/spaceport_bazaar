@@ -45,7 +45,7 @@ test('failed settlement keeps snapshot inventory, blocks repeat accept with cool
   const request = String(commands(h.sent)[0].accept.request_id);
   const rejection = result({ request_id: request, ok: false, code: 10 });
   h.receive({ result: rejection });
-  assert.equal(h.e.state.pending.length, 1);
+  assert.equal(h.e.state.pending.filter(p => p.action.kind === 'accept').length, 1);
   const next = snapshot({ snapshot_sequence: 2n, world_version: 2n, offers: s.offers, request_results: { items: [rejection] } });
   h.receive({ state: next }); await h.e.idle();
   assert.deepEqual(h.e.state.snapshot?.self.inventory, s.self.inventory);
@@ -95,7 +95,8 @@ test('withdrawal losing a race never restores spent inventory', async () => {
   h.receive({ result: rejection });
   s.snapshot_sequence = 2n; s.world_version = 2n; s.self.inventory.water = 1n; s.self.inventory.food = 2n; s.offers.items[0].status = 2; s.request_results.items.push(rejection); s.phase = 3;
   h.receive({ state: s }); await h.e.idle();
-  assert.equal(h.e.state.snapshot?.self.inventory.water, 1n); assert.equal(h.e.state.pending.length, 0);
+  assert.equal(h.e.state.snapshot?.self.inventory.water, 1n);
+  assert.equal(h.e.state.pending.filter(p => p.action.kind === 'withdraw').length, 0);
 });
 test('capacity control rejection syncs once and prevents new command IDs', async () => {
   const h = harness(); await h.ready(snapshot()); const p = h.e.state.pending[0];
@@ -117,4 +118,30 @@ test('queued socket observations run before send even with immediately resolved 
   await h.ready(snapshot());
   assert.equal(commands(h.sent).length, 0);
   assert.equal(h.e.state.snapshot?.phase, 3);
+});
+test('several commands go out before any result, and none is sent twice', async () => {
+  const h = harness(); const s = snapshot(); s.offers.items = [offer()];
+  await h.ready(s);
+  const sent = commands(h.sent);
+  assert.ok(sent.length >= 2, 'accept and advertisement are both in flight');
+  assert.equal(sent.filter(m => m.accept).length, 1);
+  h.receive({ state: snapshot({ snapshot_sequence: 2n, offers: s.offers }) }); await h.e.idle();
+  assert.equal(commands(h.sent).length, sent.length, 'no repeat while the originals await results');
+});
+test('a result arriving while a command is prepared cancels it instead of sending', async () => {
+  let h: ReturnType<typeof harness>, delivered = false;
+  h = harness(async entry => {
+    const first = h.e.state.pending[0];
+    if (entry.kind === 'command' && first && !delivered) { delivered = true; h.receive({ result: result({ request_id: first.requestId }) }); }
+  });
+  const s = snapshot(); s.offers.items = [offer()];
+  await h.ready(s);
+  assert.ok(h.records.some(r => r.kind === 'cancelled'));
+  assert.equal(h.fatal(), false, 'no revalidation mismatch');
+});
+test('each request result is journaled once, however many states repeat it', async () => {
+  const h = harness(); const r = result({ request_id: 'old' });
+  await h.ready(snapshot({ request_results: { items: [r] }, phase: 3 }));
+  h.receive({ state: snapshot({ snapshot_sequence: 2n, request_results: { items: [r] }, phase: 3 }) }); await h.e.idle();
+  assert.equal(h.records.filter(x => x.kind === 'result' && x.requestId === 'old').length, 1);
 });

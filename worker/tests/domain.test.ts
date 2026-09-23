@@ -90,14 +90,16 @@ test('supplier discovery uses advertisements; proposal and advertisement cooldow
   assert.equal(decide(snapshot(), [], ad.nextMemory, config).action.kind, 'wait');
   assert.ok(first.nextMemory.attempted[fingerprint(first.action)] > 2n);
 });
-test('quotas preserve urgent capacity, finite records, uncertain outcomes block replacements', () => {
+test('quotas preserve urgent capacity, finite records, uncertain outcomes block repeats and fill the window', () => {
   const s = snapshot(); s.rules.new_commands_per_station_per_tick = 1n;
   assert.equal(decide(s, [], memory(), config).action.kind, 'wait');
   s.offers.items = [offer()]; assert.equal(decide(s, [], memory(), config).action.kind, 'accept');
   s.rules.max_request_records_per_station = 0n;
   assert.equal(decide(s, [], memory(), config).action.kind, 'wait');
   const p: Pending = { requestId: 'req', tick: 0n, action: { kind: 'accept', body: { offer_id: 'gift' } } };
-  assert.equal(decide(snapshot(), [p], memory(), config).action.kind, 'wait');
+  const open = snapshot(); open.offers.items = [offer()];
+  assert.notEqual(decide(open, [p], memory(), config).action.kind, 'accept', 'an in-flight accept is never repeated');
+  assert.equal(decide(open, [p], memory(), { ...config, maxInFlight: 1n }).action.kind, 'wait', 'a full in-flight window blocks everything');
 });
 test('a safe outstanding offer is not withdrawn merely because its desired resource is short', () => {
   const s = snapshot();

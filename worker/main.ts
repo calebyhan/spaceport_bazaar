@@ -30,14 +30,22 @@ async function main() {
   const url = new URL(endpoint);
   if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid endpoint');
   const exercise = process.argv.includes('--exercise');
-  const journal = new Journal(process.env.BAZAAR_JOURNAL ?? '.local/worker.jsonl');
+  // Replaced by BAZAAR_JOURNAL_DIR (one file per run instead of one growing
+  // file forever); fail loudly rather than silently ignoring a stale setting.
+  if (process.env.BAZAAR_JOURNAL) throw new Error('BAZAAR_JOURNAL was replaced by BAZAAR_JOURNAL_DIR');
+  const journal = new Journal(process.env.BAZAAR_JOURNAL_DIR ?? '.local/journal');
   let mirror: Sink | undefined;
   if (process.argv.includes('--supabase')) {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) throw new Error('Missing persistence configuration');
     mirror = new SupabaseSink(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
   }
   const config = { ...defaultConfig };
-  const settings = { reserveTicks: 'BAZAAR_RESERVE_TICKS', quantity: 'BAZAAR_QUANTITY', giveUnits: 'BAZAAR_GIVE_UNITS', receiveUnits: 'BAZAAR_RECEIVE_UNITS', ttl: 'BAZAAR_TTL', cooldownTicks: 'BAZAAR_COOLDOWN_TICKS', maxOpenOffers: 'BAZAAR_MAX_OPEN_OFFERS' } as const;
+  const settings = {
+    reserveTicks: 'BAZAAR_RESERVE_TICKS', planTicks: 'BAZAAR_PLAN_TICKS', urgentTicks: 'BAZAAR_URGENT_TICKS', stockpileTicks: 'BAZAAR_STOCKPILE_TICKS',
+    lot: 'BAZAAR_LOT', ttl: 'BAZAAR_TTL', cooldownTicks: 'BAZAAR_COOLDOWN_TICKS', maxOpenOffers: 'BAZAAR_MAX_OPEN_OFFERS',
+    maxPremiumPct: 'BAZAAR_MAX_PREMIUM_PCT', premiumStepPct: 'BAZAAR_PREMIUM_STEP_PCT', maxParMisses: 'BAZAAR_MAX_PAR_MISSES',
+    ladderWindowTicks: 'BAZAAR_LADDER_WINDOW_TICKS', parRetryTicks: 'BAZAAR_PAR_RETRY_TICKS', adTtl: 'BAZAAR_AD_TTL', maxInFlight: 'BAZAAR_MAX_IN_FLIGHT',
+  } as const;
   for (const [key, variable] of Object.entries(settings)) {
     const value = process.env[variable];
     if (value) {
@@ -79,7 +87,10 @@ async function main() {
   const { packageVersion, gitCommit } = appVersion();
   const checksum = schemaChecksum();
   const engine = new Engine({ config, exercise, previous: journal.previous,
-    sink: { append: async entry => { await journal.append(entry); await mirror?.append(entry); } },
+    sink: {
+      append: async entry => { await journal.append(entry); await mirror?.append(entry); },
+      resolve: (runId, stationId) => journal.resolve(runId, stationId),
+    },
     identity: s => {
       unlock = acquireLock(s.run_id, s.self_station_id);
       engine.record({ kind: 'manifest', payload: {
@@ -99,12 +110,17 @@ async function main() {
     if (closed) return;
     const ws = new WebSocket(endpoint, SUBPROTOCOL, { headers: { Authorization: `Bearer ${token}` }, handshakeTimeout: 10000, maxPayload: 16 * 1024 * 1024, followRedirects: false });
     socket = ws;
+    let keepalive: NodeJS.Timeout | undefined;
     const epoch = engine.connect({ send: bytes => { if (ws.readyState !== WebSocket.OPEN) throw new Error('Socket not open'); ws.send(bytes, { binary: true }, error => { if (error) ws.terminate(); }); }, close: () => ws.close() });
     ws.on('open', () => {
       connectedAt = new Date().toISOString();
       engine.record({ kind: 'ws-open', payload: { subprotocol: ws.protocol } });
       if (ws.protocol !== SUBPROTOCOL) { engine.record({ kind: 'ws-subprotocol-mismatch', payload: { got: ws.protocol, expected: SUBPROTOCOL } }); engine.fail(); return; }
       attempts = 0;
+      // Keep an idle socket alive: runs 37 and 40 dropped with code 1006 about
+      // every two minutes while waiting in the lobby, when no frames flow.
+      keepalive = setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.ping(); }, 30000);
+      keepalive.unref();
     });
     ws.on('ping', () => engine.record({ kind: 'ws-ping', payload: {} }));
     ws.on('pong', () => engine.record({ kind: 'ws-pong', payload: {} }));
@@ -116,6 +132,7 @@ async function main() {
       response.resume(); engine.fail();
     });
     ws.on('close', (code, reasonBuffer) => {
+      clearInterval(keepalive);
       engine.record({ kind: 'ws-close', payload: { code, reason: reasonBuffer.toString('utf8').slice(0, 200) } });
       engine.disconnected(epoch);
       if (!closed && !engine.stopped) {

@@ -1,5 +1,6 @@
-import { type Action, type Command, type Snapshot, type Pending, type Memory, type Config, resources } from './types';
-import { active, add, deficit, forecast, liabilityTotal, liabilities, mapBundle, max, min, reserve, spendable, subtract, total, tradeSafety, zero } from './domain';
+import { type Action, type Bundle, type Command, type Snapshot, type Pending, type Memory, type Config, resources } from './types';
+import { active, add, type Forecast, forecast, liabilityTotal, liabilities, mapBundle, max, min, productionEstimate, reserve, spendable, total, tradeSafety } from './domain';
+import { askTerms, canPay, observeMarket, plan, resourceNumber, worth } from './market';
 export const json = (value: unknown) => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v);
 export function fingerprint(action: Action): string {
   if (action.kind === 'offer' || action.kind === 'advertise') {
@@ -17,97 +18,137 @@ export function capacity(s: Snapshot, pending: Pending[], urgent: boolean): bool
   const keep = urgent ? 0n : 1n;
   return slots > keep && records > keep;
 }
+// Value differences smaller than this are rounding noise, not a reason to trade.
+const EPSILON = 0.01;
+const milli = (v: number) => BigInt(Math.round(v * 1000));
+// Tie-break order among otherwise equal outcomes.
+const Kind = { withdraw: 3n, gift: 2n, exchange: 1n, offer: 0n, advertise: -1n, wait: -2n } as const;
 export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: Config) {
-  const stock = spendable(s, pending), target = reserve(s, config);
+  const stock = spendable(s, pending), safety = reserve(s, config);
   const base = forecast(s, stock);
   const commitments = liabilities(s, pending);
-  const explanation = { policyVersion: config.version, config, input: { run: s.run_id, sequence: s.snapshot_sequence, version: s.world_version, tick: s.tick }, commitments, reserve: target, forecast: base, rationale: '' };
+  const market = observeMarket(s, config, memory.failed);
+  const p = plan(s, stock, market, config);
+  const explanation = { policyVersion: config.version, config, input: { run: s.run_id, sequence: s.snapshot_sequence, version: s.world_version, tick: s.tick }, commitments, reserve: safety, forecast: base, plan: p, market, rationale: '' };
   const wait = (reason: string) => ({ action: { kind: 'wait' } as Action, nextMemory: memory, explanation: { ...explanation, rationale: reason } });
   if (s.phase !== 2 || s.self.failed_once || s.self.health === 0n || s.tick >= s.rules.duration_ticks) return wait('Phase or permanent failure prohibits trading.');
-  if (pending.length) return wait('Reconcile the outstanding command before replacing it.');
+  if (BigInt(pending.length) >= config.maxInFlight) return wait('Every in-flight slot awaits an authoritative result.');
+  // Never send an action again while an identical one awaits its result.
+  const inFlight = new Set(pending.map(p => fingerprint(p.action)));
+  const advertising = pending.some(p => p.action.kind === 'advertise');
+  const survival = (f: Forecast) => [f.failureTick ?? s.rules.duration_ticks + 1n, f.points.reduce((v, pt) => min(v, pt.health), s.self.health), -f.damage];
   const candidates: { action: Command; rank: bigint[]; rationale: string }[] = [];
-  const addCandidate = (action: Command, after: ReturnType<typeof forecast>, remainingDeficit: bigint, urgency: bigint, rationale: string) => {
+  // Ordered constraints, never a weighted sum: survival (failure tick, minimum
+  // health, damage) dominates, then value realized now, action kind, value we
+  // only hope to realize, and finally the evidence behind that hope.
+  const addCandidate = (action: Command, after: Forecast, realized: number, kind: bigint, evidence: bigint, expected: number, rationale: string) => {
     const urgent = action.kind === 'accept' || action.kind === 'withdraw';
     if (!capacity(s, pending, urgent)) return;
-    const last = memory.attempted[fingerprint(action)];
-    if (last !== undefined && s.tick < last) return;
-    // Ordered constraints, never a weighted sum. Survival dominates health,
-    // then reserve shortage, urgency, and finally canonical action text.
-    candidates.push({ action, rank: [after.failureTick ?? s.rules.duration_ticks + 1n,
-      after.points.reduce((v, p) => min(v, p.health), s.self.health), -after.damage,
-      -remainingDeficit, urgency], rationale });
+    const key = fingerprint(action);
+    if (inFlight.has(key)) return;
+    const last = memory.attempted[key];
+    if (last !== undefined && s.tick < last && !lastAccepted(s, action)) return;
+    candidates.push({ action, rank: [...survival(after), milli(realized), kind, milli(expected), evidence], rationale });
   };
+
+  // Withdraw our offers that live production and upkeep have made unsafe.
   for (const o of s.offers.items) {
-    if (!active(o.status, o.expires_tick, s.tick)) continue;
-    if (o.proposer_id === s.self_station_id) {
-      // Live production/upkeep can make yesterday's promise unsafe. Withdrawal
-      // only changes the forecast if it wins; keep accounting for a losing race.
-      const withoutThis = { ...s, offers: { items: s.offers.items.filter(other => other.offer_id !== o.offer_id) } };
-      if (!outgoingSafe(withoutThis, pending, o.give, o.receive, o.expires_tick, config)) {
-        const released = add(stock, o.give);
-        addCandidate({ kind: 'withdraw', body: { object_id: o.offer_id } }, forecast(s, released), deficit(released, target), 3n, 'Withdraw a liability that breaches the current reserve; retain it until confirmed.');
-      }
-    } else if (o.recipient_id === s.self_station_id) {
-      const check = tradeSafety(s, pending, o.receive, o.give, config);
-      const next = add(subtract(stock, o.receive), o.give);
-      const useful = deficit(next, target) < deficit(stock, target) || check.after.damage < base.damage;
-      if (check.safe && useful) addCandidate({ kind: 'accept', body: { offer_id: o.offer_id } }, check.after, deficit(next, target), total(o.receive) === 0n ? 2n : 1n, total(o.receive) === 0n ? 'Accept a useful inbound gift.' : check.belowReserve ? 'Emergency exchange improves every affected health forecast without earlier failure.' : 'Affordable exchange improves a shortage and preserves reserve.');
+    if (o.proposer_id !== s.self_station_id || !active(o.status, o.expires_tick, s.tick)) continue;
+    // Withdrawal only changes the forecast if it wins; keep accounting for a losing race.
+    const withoutThis = { ...s, offers: { items: s.offers.items.filter(other => other.offer_id !== o.offer_id) } };
+    if (!outgoingSafe(withoutThis, pending, o.give, o.receive, o.expires_tick, config)) {
+      addCandidate({ kind: 'withdraw', body: { object_id: o.offer_id } }, forecast(s, add(stock, o.give)), 0, Kind.withdraw, 0n, 0, 'Withdraw a liability that breaches the current reserve; retain it until confirmed.');
     }
   }
-  const needs = resources.filter(r => stock[r] < target[r]).sort((a, b) => {
-    const aTick = s.self.upkeep_per_tick[a] ? max(0n, stock[a]) / s.self.upkeep_per_tick[a] : s.rules.duration_ticks;
-    const bTick = s.self.upkeep_per_tick[b] ? max(0n, stock[b]) / s.self.upkeep_per_tick[b] : s.rules.duration_ticks;
-    return aTick < bTick ? -1 : aTick > bTick ? 1 : resources.indexOf(a) - resources.indexOf(b);
-  });
-  const expiry = min(s.rules.duration_ticks, s.tick + min(config.ttl, s.rules.max_offer_ttl_ticks));
-  const openOfferRoom = BigInt(commitments.length) < min(config.maxOpenOffers, s.rules.max_open_outgoing_offers);
-  if (needs.length && openOfferRoom && s.rules.max_open_outgoing_offers > 0n && expiry > s.tick) {
-    const need = needs[0];
-    for (const ad of s.advertisements.items) {
-      if (ad.station_id === s.self_station_id || !active(ad.status, ad.expires_tick, s.tick) || !ad.selling.items.includes(resources.indexOf(need) + 1)) continue;
-      for (const sell of resources) {
-        if (sell === need || !ad.seeking.items.includes(resources.indexOf(sell) + 1)) continue;
-        const pay = { ...zero(), [sell]: config.quantity * config.giveUnits };
-        const gain = { ...zero(), [need]: config.quantity * config.receiveUnits };
-        // Reserve the selling resource through the last possible acceptance,
-        // including the next reserve window. Incoming stock is never committed.
-        if (!outgoingSafe(s, pending, pay, gain, expiry, config)) continue;
-        const action: Command = { kind: 'offer', body: { recipient_id: ad.station_id, give: pay, receive: gain, expires_tick: expiry } };
-        // Rank an unaccepted proposal by WAIT, never by hoped-for incoming stock.
-        addCandidate(action, base, deficit(stock, target), 0n, `Offer verified ${sell} surplus to an advertised ${need} supplier; safe at every possible settlement tick, receipt unguaranteed.`);
+
+  // Accept any safe inbound offer at or above par that raises what our
+  // inventory is worth. Survival is the filter, value is the reason.
+  for (const o of s.offers.items) {
+    if (o.recipient_id !== s.self_station_id || !active(o.status, o.expires_tick, s.tick)) continue;
+    const pay = o.receive, gain = o.give;
+    if (total(gain) < total(pay)) continue;
+    const gained = worth(gain, p) - worth(pay, p);
+    if (gained <= EPSILON) continue;
+    const check = tradeSafety(s, pending, pay, gain, config);
+    if (!check.safe) continue;
+    if (!canPay(p, stock, pay, gain)) continue;
+    const gift = total(pay) === 0n;
+    addCandidate({ kind: 'accept', body: { offer_id: o.offer_id } }, check.after, gained, gift ? Kind.gift : Kind.exchange, 0n, 0,
+      gift ? 'Accept a safe inbound gift.' : `Accept an at-or-above-par exchange worth ${gained.toFixed(2)} to us.`);
+  }
+
+  // Propose to every station with evidence it supplies what we want, paying
+  // with something it wants (or anything, if its wants are unknown).
+  // Offers must still be alive once the lagging server processes them.
+  const expiry = min(s.rules.duration_ticks, s.tick + min(config.ttl + (memory.lag ?? 0n), s.rules.max_offer_ttl_ticks));
+  const openLimit = min(config.maxOpenOffers, s.rules.max_open_outgoing_offers);
+  if (BigInt(commitments.length) < openLimit && expiry > s.tick) {
+    // One open ask per station and resource: let the ladder, not duplicates, find the price.
+    const asked = new Set([
+      ...s.offers.items.filter(o => o.proposer_id === s.self_station_id && active(o.status, o.expires_tick, s.tick)),
+      ...pending.flatMap(q => q.action.kind === 'offer' ? [q.action.body] : []),
+    ].flatMap(o => resources.filter(r => o.receive[r] > 0n).map(r => `${o.recipient_id}:${r}`)));
+    for (const station of market.stations) {
+      for (const gain of resources) {
+        if (!station.gives[gain] || asked.has(`${station.id}:${gain}`)) continue;
+        for (const pay of resources) {
+          if (pay === gain || (station.wants.length && !station.wants.includes(pay))) continue;
+          const terms = askTerms(s, p, market, station, pay, gain, config);
+          if (!terms || terms.value <= EPSILON || !canPay(p, stock, terms.give, terms.receive)) continue;
+          if (!outgoingSafe(s, pending, terms.give, terms.receive, expiry, config)) continue;
+          const action: Command = { kind: 'offer', body: { recipient_id: station.id, give: terms.give, receive: terms.receive, expires_tick: expiry } };
+          // Rank an unaccepted proposal by WAIT, never by hoped-for incoming stock.
+          addCandidate(action, base, 0, Kind.offer, BigInt(station.gives[gain]), terms.value,
+            `Offer ${terms.give[pay]} ${pay} for ${terms.receive[gain]} ${gain} to ${station.id} at ${terms.premium}% premium (${terms.misses} unanswered); safe at every settlement tick, receipt unguaranteed.`);
+        }
       }
     }
   }
-  const selling = resources.filter(r => stock[r] - target[r] >= config.quantity * config.giveUnits).map(r => resources.indexOf(r) + 1);
-  const seeking = needs.map(r => resources.indexOf(r) + 1).sort();
+
+  // The advertisement states what the plan will actually trade: resources
+  // beyond our own and relay needs, and needs we have not covered.
+  const selling = resources.filter(r => p.sellable[r] > 0n).map(resourceNumber);
+  const seeking = p.seeking.map(resourceNumber);
   const ownAd = s.advertisements.items.find(a => a.station_id === s.self_station_id && active(a.status, a.expires_tick, s.tick));
-  const adExpiry = min(s.rules.duration_ticks, s.tick + min(config.ttl, s.rules.max_publication_ttl_ticks));
-  if (!selling.length && !seeking.length && ownAd) {
-    addCandidate({ kind: 'withdraw', body: { object_id: ownAd.advertisement_id } }, base, deficit(stock, target), -1n, 'Remove a stale market signal.');
+  const adExpiry = min(s.rules.duration_ticks, s.tick + min(config.adTtl, s.rules.max_publication_ttl_ticks));
+  if (advertising) {
+    // The pending advertisement already replaces ours; wait for its result.
+  } else if (!selling.length && !seeking.length && ownAd) {
+    addCandidate({ kind: 'withdraw', body: { object_id: ownAd.advertisement_id } }, base, 0, Kind.advertise, 0n, 0, 'Remove a stale market signal.');
   } else if (adExpiry > s.tick && (selling.length || seeking.length) && (!ownAd || json(ownAd.selling.items) !== json(selling) || json(ownAd.seeking.items) !== json(seeking))) {
-    addCandidate({ kind: 'advertise', body: { selling: { items: selling }, seeking: { items: seeking }, expires_tick: adExpiry } }, base, deficit(stock, target), -1n, 'Update the single advertisement to current needs and safe supply.');
+    addCandidate({ kind: 'advertise', body: { selling: { items: selling }, seeking: { items: seeking }, expires_tick: adExpiry } }, base, 0, Kind.advertise, 0n, 0, 'Update the single advertisement to the current plan.');
   }
+
   candidates.sort((a, b) => {
     for (let i = 0; i < a.rank.length; i++) if (a.rank[i] !== b.rank[i]) return a.rank[i] > b.rank[i] ? -1 : 1;
     return fingerprint(a.action) < fingerprint(b.action) ? -1 : 1;
   });
-  const waitRank = [base.failureTick ?? s.rules.duration_ticks + 1n, base.points.reduce((v, p) => min(v, p.health), s.self.health), -base.damage, -deficit(stock, target), -2n];
+  const waitRank = [...survival(base), 0n, Kind.wait, 0n, 0n];
   const best = candidates.find(candidate => {
     for (let i = 0; i < waitRank.length; i++) if (candidate.rank[i] !== waitRank[i]) return candidate.rank[i] > waitRank[i];
     return false;
   });
-  if (!best) return wait('Wait: no safe useful action within capacity and cooldown limits.');
+  if (!best) return wait('Wait: no safe, valuable action within capacity and cooldown limits.');
   const until = (best.action.kind === 'offer' ? best.action.body.expires_tick : s.tick) + config.cooldownTicks;
-  return { action: best.action as Action, nextMemory: { attempted: { ...memory.attempted, [fingerprint(best.action)]: until } }, explanation: { ...explanation, rationale: best.rationale } };
+  return { action: best.action as Action, nextMemory: { ...memory, attempted: { ...memory.attempted, [fingerprint(best.action)]: until } }, explanation: { ...explanation, rationale: best.rationale } };
 }
 // Exported for audit tools without duplicating commitment arithmetic.
 export const commitmentBundle = (s: Snapshot, p: Pending[]) => liabilityTotal(liabilities(s, p));
 export const missingBundle = (s: Snapshot, p: Pending[], c: Config) => mapBundle(r => max(0n, reserve(s, c)[r] - spendable(s, p)[r]));
 
-function outgoingSafe(s: Snapshot, pending: Pending[], pay: import('./types').Bundle, gain: import('./types').Bundle, expiry: bigint, config: Config) {
-  const stock = spendable(s, pending);
+// Cooldowns stop us repeating terms nobody took. Terms that were just
+// accepted are the price that clears, so repeating them is the point.
+function lastAccepted(s: Snapshot, action: Command) {
+  if (action.kind !== 'offer') return false;
+  const same = s.offers.items.filter(o => o.proposer_id === s.self_station_id && o.recipient_id === action.body.recipient_id
+    && resources.every(r => o.give[r] === action.body.give[r] && o.receive[r] === action.body.receive[r]));
+  const latest = same.reduce<typeof same[number] | undefined>((a, o) => !a || o.created_tick > a.created_tick ? o : a, undefined);
+  return latest?.status === 2;
+}
+function outgoingSafe(s: Snapshot, pending: Pending[], pay: Bundle, gain: Bundle, expiry: bigint, config: Config) {
+  const stock = spendable(s, pending), production = productionEstimate(s);
   const protectedTicks = min(s.rules.duration_ticks - s.tick, config.reserveTicks + expiry - s.tick - 1n);
-  if (resources.some(r => pay[r] > 0n && stock[r] - pay[r] < s.self.upkeep_per_tick[r] * protectedTicks)) return false;
+  if (resources.some(r => pay[r] > 0n && stock[r] - pay[r] + production[r] * protectedTicks < s.self.upkeep_per_tick[r] * protectedTicks)) return false;
   for (let t = s.tick; t < expiry; t++) if (!tradeSafety(s, pending, pay, gain, config, t).safe) return false;
   return true;
 }

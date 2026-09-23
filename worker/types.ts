@@ -22,6 +22,10 @@ export interface AdvertisementBody {
 export interface Advertisement extends AdvertisementBody {
   advertisement_id: string; station_id: string; status: number;
 }
+export interface Transaction {
+  transaction_id: string; offer_id: string; proposer_id: string; recipient_id: string;
+  give: Bundle; receive: Bundle; settled_tick: bigint; settled_version: bigint;
+}
 export interface Result {
   protocol_version: string; run_id: string; request_id: string; ok: boolean; code: number;
   processed_tick: bigint; processed_version: bigint;
@@ -37,8 +41,9 @@ export interface Snapshot {
     produced_total: Bundle; consumed_total: Bundle; unmet_total: Bundle;
     imported_total: Bundle; exported_total: Bundle };
   outcome: Nullable<{ collective_success: Nullable<boolean>; self_failed: boolean; aborted: boolean }>;
+  directory?: { items: { station_id: string; display_name: string }[] };
   offers: { items: Offer[] }; advertisements: { items: Advertisement[] };
-  request_results: { items: Result[] }; transactions: { items: unknown[] };
+  request_results: { items: Result[] }; transactions: { items: Transaction[] };
 }
 export type Action = { kind: 'wait' } | { kind: 'offer'; body: OfferBody }
   | { kind: 'advertise'; body: AdvertisementBody }
@@ -47,11 +52,34 @@ export type Action = { kind: 'wait' } | { kind: 'offer'; body: OfferBody }
 export type Command = Exclude<Action, { kind: 'wait' }>;
 export interface Pending { requestId: string; action: Command; tick: bigint; result?: Result }
 export interface Config {
-  reserveTicks: bigint; quantity: bigint; giveUnits: bigint; receiveUnits: bigint;
-  ttl: bigint; cooldownTicks: bigint; maxOpenOffers: bigint; version: string;
+  // Safety: hard stock floor, in ticks of upkeep, that no trade may breach.
+  reserveTicks: bigint;
+  // Planning: ticks of upkeep to hold, ticks that make a shortage urgent, and
+  // extra ticks to stockpile of a resource the market is short of.
+  planTicks: bigint; urgentTicks: bigint; stockpileTicks: bigint;
+  // Proposals: most units received per offer, offer lifetime, and cooldown.
+  lot: bigint; ttl: bigint; cooldownTicks: bigint; maxOpenOffers: bigint;
+  // Pricing: opening premium and ladder step, in percent of units received
+  // over units given. The floor is always par (never receive fewer units).
+  maxPremiumPct: bigint; premiumStepPct: bigint;
+  // Unanswered par offers tolerated per station and pair, counted since the
+  // last acceptance and within ladderWindowTicks. After that, a needed pair is
+  // retried at par once parRetryTicks have passed since the last one expired.
+  maxParMisses: bigint; ladderWindowTicks: bigint; parRetryTicks: bigint;
+  adTtl: bigint;
+  // Commands awaiting an authoritative result at once. Each is fully debited
+  // while in flight; identical actions are never sent twice.
+  maxInFlight: bigint;
+  version: string;
 }
 export const defaultConfig: Config = {
-  reserveTicks: 2n, quantity: 1n, giveUnits: 1n, receiveUnits: 1n,
-  ttl: 2n, cooldownTicks: 2n, maxOpenOffers: 2n, version: 'baseline-2',
+  reserveTicks: 2n, planTicks: 40n, urgentTicks: 10n, stockpileTicks: 10n,
+  lot: 6n, ttl: 3n, cooldownTicks: 1n, maxOpenOffers: 8n,
+  maxPremiumPct: 50n, premiumStepPct: 25n, maxParMisses: 2n, ladderWindowTicks: 30n, parRetryTicks: 3n,
+  adTtl: 12n, maxInFlight: 3n, version: 'market-5',
 };
-export interface Memory { attempted: Record<string, bigint> }
+// Policy memory: cooldowns for attempted terms, plus facts learned from
+// command results that no snapshot records. Failed stations were rejected with
+// STATION_FAILED (failure is permanent); lag is how many ticks after sending
+// the server has recently processed our commands.
+export interface Memory { attempted: Record<string, bigint>; failed?: string[]; lag?: bigint }
