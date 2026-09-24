@@ -6,6 +6,13 @@ scope: "High-level market and decision strategy; not an implementation specifica
 
 # Autonomous Trading Strategy
 
+> **Status note (2026-09-24).** Live runs 37–40 changed parts of this plan.
+> The rules in [live run learnings](live-run-learnings.md#standing-decisions)
+> take precedence: we never trade below 1:1 and send no gifts, so the
+> "fair-market posture" concessions and gift guidance below no longer apply.
+> Resources we don't produce are bought for the whole run, not a short
+> reserve horizon. The rest of this document still describes intent.
+
 ## Purpose
 
 This document describes the intended high-level strategy for our planet's

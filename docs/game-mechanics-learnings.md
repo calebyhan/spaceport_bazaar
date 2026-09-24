@@ -1,7 +1,7 @@
 ---
 title: "Spaceport Bazaar Mechanics and Experimental Learnings"
 status: "Research notes"
-last_updated: "2026-09-22"
+last_updated: "2026-09-24"
 ---
 
 # Spaceport Bazaar Mechanics and Experimental Learnings
@@ -359,7 +359,75 @@ reserve conservatism when designing the real decision loop.
     aid did not measurably outperform generous, indiscriminate aid in the
     model - throughput mattered more than precision.
 
+## Live run observations
+
+Observed in live classroom runs 37, 39 and 40 (2026-09-23), all as station P09.
+These are facts about that server and configuration, not guarantees about
+future runs. Per-run analysis is in [live run learnings](live-run-learnings.md).
+
+**Rules and starting state.** Every run was 120 ticks, starting with 30 of
+each resource, upkeep 1/1/1, health 100, 5 damage per missing unit and 5
+recovery per fully supplied tick. So a single missing resource fails a
+station exactly 20 ticks after it runs out. Live limits: 10 new commands per
+tick, 2048 request records, 24 open outgoing offers, and offer and
+advertisement lifetimes of at most 12 ticks.
+
+**Tick timing is not what the rules say.** `tick_duration_ms` changed in the
+lobby in run-37 (10000, then 5000). In run-39 it read 10000, but ticks after
+about tick 25 ran roughly 1 second apart (0.3–11 s). Run-40 read 5000 and
+mostly kept it, apart from a fast stretch around ticks 45–70. Plan per tick,
+not per second.
+
+**Production follows a fixed schedule of 24-tick blocks.** In runs 39 and 40
+our specialty production was the same five blocks in a different order:
+alternating 4 and 5, alternating 1 and 2, all 6, all 6, and alternating 4
+and 5. That totals 540 units, 4.5 a tick on average. The low block (about
+1.5 a tick) lasts 24 ticks and can come at any point. Run-37 stopped at tick
+56; its first 56 ticks (12 of 6, then 24 of 4/5, then 20 of 6) look like a
+different block layout. *Inferred:* peers likely follow similar schedules,
+so their supply also dips for 24 ticks at a time.
+
+**Snapshots carry full history.** Every state includes every offer and
+transaction involving us since the run began. Snapshots grow over the run
+(about 17 KB by tick 40 of run-39), and the policy can rebuild counterparty
+history from any one of them.
+
+**Result lag varies by run.** In run-39, from about tick 30, results took
+1.5–3 seconds and were processed 1–3 ticks after we sent the command. In
+run-40 the median round trip was 256 ms. An offer whose `expires_tick` has
+passed by the time the server processes it is rejected with
+`INVALID_ARGUMENT`.
+
+**Peer failure is visible only through rejections.** Stations fail mid-run.
+An offer to a failed recipient returns `STATION_FAILED` (code 11), not only
+when *we* have failed. No snapshot field reports a peer's failure, but its
+advertisement disappears before expiry.
+
+**Peer behaviour.**
+
+- Several stations post 1-unit, 1:1 offers every tick (P07 and P08 in runs 39
+  and 40).
+- Desperate stations bid far above 1:1: up to 3:1 for food (run-39) and 8:1
+  for water (run-40).
+- Some stations never act; five were silent in run-37.
+- Early in run-37 several stations advertised "selling everything" with
+  nothing sought.
+
+**Collective outcome.** No run achieved collective success. Each time one
+resource became scarce across the whole market: food in 37 and 39, water in
+40.
+
+**Connection.** An idle socket in the lobby dropped with code 1006 about
+every 125 seconds (runs 37 and 40). The worker now sends a keepalive ping.
+
 ## Questions only the real run can answer
+
+Runs 37, 39 and 40 answered duration, tick timing, upkeep and health rules,
+starting inventory, our production pattern, live limits, some peer latency
+and willingness, and whether scarcity was market-wide (it was); see
+[live run observations](#live-run-observations). Still open: secondary
+scoring, peers' production schedules, and how advertisements change under
+stress.
 
 Record rather than assume:
 

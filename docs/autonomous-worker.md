@@ -98,7 +98,8 @@ are linked through request IDs in the journal and optional database mirror.
 The `market` policy (worker/policy.ts, with the market model in
 worker/market.ts) replaced `baseline-2` after run-37. Version `market-4` adds
 the run-39 fixes and `market-5` the run-40 fixes, described under **Run-39
-changes** and **Run-40 changes** below. In run-37 our station
+changes** and **Run-40 changes** below. The analysis behind each change is in
+[live run learnings](live-run-learnings.md). In run-37 our station
 starved of food while holding over 200 spare components. It never originated
 an offer, and it refused favourable trades once food had doomed the forecast.
 Defaults, all overridable with the matching `BAZAAR_*` variable in
