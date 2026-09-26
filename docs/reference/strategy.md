@@ -1,5 +1,7 @@
 ---
 title: "Autonomous Trading Strategy"
+[Documentation index](../README.md)
+
 status: "Planning document"
 scope: "High-level market and decision strategy; not an implementation specification."
 ---
@@ -15,7 +17,7 @@ counterparty behavior. It deliberately does not prescribe code structure,
 model providers, or wire-protocol implementation.
 
 The primary source for game facts is the
-[agent-readable handbook](spaceport-bazaar-agent-readable.md). The live server
+[agent-readable handbook](protocol.md). The live server
 snapshot remains authoritative for the rules and configuration of a particular
 run.
 

@@ -39,7 +39,6 @@ export class Engine {
   private exerciseSync = false;
   private capacityExhausted = false;
   private syncTimer?: NodeJS.Timeout;
-  private restored = false;
   readonly config: Config;
   constructor(private options: EngineOptions) { this.config = options.config ?? defaultConfig; }
   connect(transport: Transport) {
@@ -80,8 +79,6 @@ export class Engine {
     } catch { this.fail(); }
   }
   private restore(s: Snapshot) {
-    if (this.restored) return;
-    this.restored = true;
     const pending = new Map<string, Pending>();
     for (const entry of this.options.previous ?? []) {
       if (entry.kind === 'command') {
@@ -125,8 +122,9 @@ export class Engine {
       this.state.result(msg.result);
       this.record({ kind: 'result', direction: 'inbound', requestId: msg.result.request_id, payload: msg.result });
       if (msg.result.code === 2) throw new Error('Request ID conflict');
-    } else if (msg.protocol_error) {
-      const error = msg.protocol_error;
+    } else {
+      // decode guarantees exactly one recognized envelope.
+      const error = msg.protocol_error!;
       this.record({ kind: 'protocol_error', direction: 'inbound', requestId: error.request_id.value, payload: error });
       if (error.close_session) { this.fail(); return; }
       if (error.code === 2) {
@@ -160,8 +158,7 @@ export class Engine {
           if (step === 'done') {
             if (this.exerciseCapacity) continue;
             action = { kind: 'advertise', body: { selling: { items: [1] }, seeking: { items: [2] }, expires_tick: 6n } };
-          } else if (step === 'sync') { this.control('sync'); continue; }
-          else action = step;
+          } else action = step;
         } else {
           decision = decide(s, this.state.pending, this.memory, this.config);
           action = decision.action;

@@ -1,5 +1,7 @@
 # Dashboard setup
 
+[Documentation index](../README.md)
+
 ## 1. Set local secrets
 
 Copy the template and replace both placeholder values with the server-side
@@ -19,32 +21,25 @@ In the Supabase project, open **SQL Editor**, paste the contents of
 `supabase/migrations/20260916000000_initial_dashboard.sql`, and run it once.
 
 The migration enables Row Level Security and does not give anonymous browsers
-access to the tables. The dashboard's server and the eventual protocol worker
+access to the tables. The dashboard's server and the protocol worker
 use the server-only secret key instead.
 
 ## 3. Run the dashboard
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 
-Open <http://localhost:3000>. Before the protocol worker is built, the page
-will confirm the database connection and display an empty run state.
+Open <http://localhost:3000>. The page confirms the database connection and displays an empty run state
+until the worker records its first snapshot.
 
 `GET /api/health` returns whether the server has Supabase credentials. It does
 not expose the URL, key, or any database data.
-
-## What comes next
-
-The schema is ready for a single protocol worker to create a `runs` record,
-append decoded inbound/outbound messages to `events`, upsert the newest state
-into `current_snapshots`, and correlate sent commands in `commands`. That is
-the next implementation step; the dashboard already reads this shape.
 
 ## Protocol worker
 
 The standalone worker now records this schema when explicitly started with
 `--supabase`. It also keeps a durable local journal. See
-[worker setup and policy](autonomous-worker.md) for credentials, exercise and
+[worker setup and policy](../operations/worker.md) for credentials, exercise and
 autonomous modes, recovery behavior, and reproducible verification commands.

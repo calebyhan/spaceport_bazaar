@@ -1,6 +1,6 @@
-import test from 'node:test';
+import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -9,13 +9,19 @@ import { Engine } from '../engine';
 import { encodeServer, decodeClient } from '../codec';
 import { snapshot } from './fixtures';
 
+const directories: string[] = [];
+afterEach(() => { for (const path of directories) rmSync(path, { recursive: true, force: true }); directories.length = 0; });
+function temporaryDirectory(prefix: string) {
+  const path = mkdtempSync(join(tmpdir(), prefix)); directories.push(path); return path;
+}
+
 test('host/run lock refuses a concurrent owner and can be released', () => {
   const id = randomUUID(); const release = acquireLock(id, 'station');
   try { assert.throws(() => acquireLock(id, 'station'), /EEXIST/); } finally { release(); }
   acquireLock(id, 'station')();
 });
 test('durable journal restores uncertain commands after process restart', async () => {
-  const path = join(mkdtempSync(join(tmpdir(), 'bazaar-journal-')), 'events.jsonl');
+  const path = join(temporaryDirectory('bazaar-journal-'), 'events.jsonl');
   const journal = new Journal(path);
   const sends: unknown[] = [];
   const first = new Engine({ sink: journal });
@@ -35,6 +41,6 @@ test('durable journal restores uncertain commands after process restart', async 
   second.disconnected(epoch2); reopened.close();
 });
 test('torn journal fails closed instead of losing pending tracking', () => {
-  const path = join(mkdtempSync(join(tmpdir(), 'bazaar-torn-')), 'events.jsonl');
+  const path = join(temporaryDirectory('bazaar-torn-'), 'events.jsonl');
   writeFileSync(path, '{"kind":'); assert.throws(() => new Journal(path));
 });

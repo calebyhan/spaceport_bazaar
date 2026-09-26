@@ -92,8 +92,9 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
   });
   const waitRank = [base.failureTick ?? s.rules.duration_ticks + 1n, base.points.reduce((v, p) => min(v, p.health), s.self.health), -base.damage, -deficit(stock, target), -2n];
   const best = candidates.find(candidate => {
-    for (let i = 0; i < waitRank.length; i++) if (candidate.rank[i] !== waitRank[i]) return candidate.rank[i] > waitRank[i];
-    return false;
+    for (let i = 0; i < waitRank.length - 1; i++) if (candidate.rank[i] !== waitRank[i]) return candidate.rank[i] > waitRank[i];
+    // Every command has a distinct urgency from wait (-2).
+    return candidate.rank[4] > waitRank[4];
   });
   if (!best) return wait('Wait: no safe useful action within capacity and cooldown limits.');
   const until = (best.action.kind === 'offer' ? best.action.body.expires_tick : s.tick) + config.cooldownTicks;

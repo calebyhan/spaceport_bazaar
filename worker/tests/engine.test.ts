@@ -1,14 +1,17 @@
-import test from 'node:test';
+import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 import { Engine } from '../engine';
 import { encodeServer, decodeClient } from '../codec';
 import type { RecordEntry } from '../persistence';
 import { snapshot, offer, result } from './fixtures';
 import type { Snapshot } from '../types';
+const engines: Engine[] = [];
+afterEach(() => { for (const engine of engines) engine.disconnected(engine.state.epoch); engines.length = 0; });
 function harness(append?: (entry: RecordEntry) => Promise<void>) {
   const sent: ReturnType<typeof decodeClient>[] = [], records: RecordEntry[] = [];
   let fatal = false;
   const e = new Engine({ sink: { append: async entry => { records.push(entry); await append?.(entry); } }, fatal: () => { fatal = true; } });
+  engines.push(e);
   const transport = { send: (bytes: Uint8Array) => sent.push(decodeClient(bytes)), close: () => {} };
   let epoch = e.connect(transport);
   const receive = (msg: unknown) => e.receive(epoch, encodeServer(msg));

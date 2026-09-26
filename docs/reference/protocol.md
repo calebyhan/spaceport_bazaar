@@ -1,5 +1,7 @@
 ---
 title: "Spaceport Bazaar: Agent-Readable Handbook"
+[Documentation index](../README.md)
+
 description: "Gameplay, protocol, and client-design reference transcribed from the Galaxy Handbook."
 source: "Galaxy Handbook / Protocol 2.0"
 source_pages: "02/09–09/09"

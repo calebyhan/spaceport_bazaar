@@ -1,7 +1,7 @@
 import type { Action, Snapshot } from './types';
 import { zero } from './domain';
 // This is the validator's prescribed script, NEVER the autonomous strategy.
-export function exercise(s: Snapshot): Action | 'sync' | 'done' {
+export function exercise(s: Snapshot): Action | 'done' {
   const results = s.request_results.items;
   if (results.some(r => !r.ok)) throw new Error('Validator command rejected');
   if (results.length === 0) return { kind: 'advertise', body: { selling: { items: [1] }, seeking: { items: [2] }, expires_tick: 6n } };

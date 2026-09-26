@@ -9,12 +9,12 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run lint",
-    "test": "npm run test:worker && npm run check",
+    "test": "npm run test:coverage && npm run check",
     "proto:generate": "pbjs -t static-module -w commonjs --keep-case --force-long -o worker/generated/bazaar.js artifacts/bazaar-protobuf-starter-linux/bazaar.proto && pbts -o worker/generated/bazaar.d.ts worker/generated/bazaar.js",
     "worker": "tsx worker/main.ts",
     "worker:exercise": "tsx worker/main.ts --exercise",
-    "test:worker": "tsx --test worker/tests/*.test.ts",
-    "test:coverage": "tsx --test --experimental-test-coverage --test-coverage-exclude=\"worker/generated/**\" --test-coverage-exclude=\"worker/tests/**\" worker/tests/*.test.ts",
+    "test:worker": "vitest run worker/tests",
+    "test:coverage": "vitest run --coverage",
     "test:validator": "tsx worker/tests/validator.ts"
   },
   "dependencies": {
@@ -32,10 +32,12 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^5.0.1",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.5",
     "protobufjs-cli": "^2.7.0",
     "tsx": "^4.23.15",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.1"
   }
 }

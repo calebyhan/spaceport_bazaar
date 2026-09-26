@@ -1,5 +1,7 @@
 # Autonomous baseline v1
 
+[Documentation index](../README.md)
+
 The worker is a separate Node process; the dashboard never owns the trading
 socket. `worker/policy.ts` contains the deterministic decision function and
 `worker/domain.ts` contains bundle, commitment, and forecast arithmetic.
@@ -23,17 +25,8 @@ No deployment or remote schema changes are required to run local verification.
 
 ## Run locally
 
-Use Node 22 and run from the repository root:
-
-```sh
-npm ci
-npm run proto:generate
-npm run test:worker
-npm run test:validator
-npm run test:coverage
-npm run check
-npm run build
-```
+Use Node 22. Follow [development setup](../setup/development.md) and the
+[testing guide](../testing.md) for installation and verification commands.
 
 `proto:generate` uses the supplied schema with proto2 required fields and
 unpacked lists. Generated JavaScript and declarations live in `worker/generated`;
@@ -219,12 +212,8 @@ epoch. This also distinguishes sequence resets across process restarts. The
 current snapshot remains the raw authoritative observation; no transaction is
 re-applied during database mirroring.
 
-Coverage excludes generated bindings and test fixtures. The measured suite
-covers all domain and policy lines; remaining gaps include the CLI's live socket
-lifecycle and Supabase adapter, which are not exercised by the in-process
-coverage run. The separate validator exercises the CLI and exercise script but
-is not included in that percentage. Local sink-failure tests prove the engine
-stops on persistence failure; they do not prove remote database permissions.
+Coverage scope, quality expectations, and reproducible commands are maintained
+in the [testing guide](../testing.md).
 
 Local verification on 2026-09-21 completed the supplied validator's ten steps
 with final inventory `(28 water, 31 food, 31 components)`. The three six-tick

@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { active, add, affordable, forecast, liabilities, perspective, reserve, spendable, subtract, tradeSafety, zero } from '../domain';
 import { decide, fingerprint } from '../policy';
@@ -114,4 +114,17 @@ test('delayed settlement consumes only available upkeep, never creates negative 
 test('an unaffordable payment stays unsafe, even if simultaneous receipts would repair it', () => {
   const s = snapshot();
   assert.equal(tradeSafety(s, [], bundle(21n,0n,0n), bundle(0n,100n,0n), config).safe, false);
+});
+
+test('rejected and already-observed outgoing offers do not double reserve inventory', () => {
+  const s = snapshot();
+  const p: Pending = { requestId: 'req', tick: 0n, action: { kind: 'offer', body: { recipient_id: 'peer', give: bundle(3n,0n,0n), receive: zero(), expires_tick: 3n } }, result: result({ ok: false }) };
+  assert.deepEqual(liabilities(s, [p]), []);
+  p.result = result(); s.offers.items = [offer({ offer_id: 'out', proposer_id: 'ours' })];
+  assert.equal(liabilities(s, [p]).length, 1);
+});
+test('rate limit fallback is monotonic and defaults to the next processed tick', () => {
+  const store = new StateStore();
+  store.result(result({ code: 4, processed_tick: 2n })); assert.equal(store.blockedUntil, 3n);
+  store.result(result({ code: 4, retry_after_tick: { value: 1n } })); assert.equal(store.blockedUntil, 3n);
 });
