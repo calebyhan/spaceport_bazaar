@@ -125,9 +125,10 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
     return fingerprint(a.action) < fingerprint(b.action) ? -1 : 1;
   });
   const waitRank = [...survival(base), 0n, Kind.wait, 0n, 0n];
+  // No candidate carries the wait kind, so every rank differs from waitRank somewhere.
   const best = candidates.find(candidate => {
-    for (let i = 0; i < waitRank.length; i++) if (candidate.rank[i] !== waitRank[i]) return candidate.rank[i] > waitRank[i];
-    return false;
+    const i = candidate.rank.findIndex((value, j) => value !== waitRank[j]);
+    return candidate.rank[i] > waitRank[i];
   });
   if (!best) return wait('Wait: no safe, valuable action within capacity and cooldown limits.');
   const until = (best.action.kind === 'offer' ? best.action.body.expires_tick : s.tick) + config.cooldownTicks;

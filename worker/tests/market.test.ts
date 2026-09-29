@@ -1,7 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { decide } from '../policy';
-import { askTerms, misses, observeMarket, plan, premiumLadder } from '../market';
+import { askTerms, misses, observeMarket, pairHistory, plan, premiumLadder } from '../market';
 import { spendable, total, zero } from '../domain';
 import { StateStore } from '../state';
 import type { Advertisement, Offer, Pending, Snapshot } from '../types';
@@ -296,4 +296,80 @@ test('bids above par mark a resource scarce enough to stockpile', () => {
   s.offers.items = [offer({ offer_id: 'bid', proposer_id: 'P01', give: bundle(0n, 0n, 8n), receive: bundle(1n, 0n, 0n), created_tick: 9n, expires_tick: 12n })];
   const p = plan(s, spendable(s, []), observeMarket(s, config), config);
   assert.ok(p.stockpile.water > 0n);
+});
+
+// Edge cases of market observation, pricing and the policy's safety filters.
+test('stations are observed without a directory, including as recipients of our settled trades', () => {
+  const s = producer(); delete s.directory;
+  // Unknown resource numbers in an advertisement are ignored.
+  s.advertisements.items = [ad('P01', [2, 9], [3, 0])];
+  s.offers.items = [ours(s, { offer_id: 'o1', recipient_id: 'P02', give: bundle(0n, 0n, 2n), receive: bundle(0n, 2n, 0n), status: 2, created_tick: 5n })];
+  s.transactions.items = [{ transaction_id: 't1', offer_id: 'o1', proposer_id: 'ours', recipient_id: 'P02', give: bundle(0n, 0n, 2n), receive: bundle(0n, 2n, 0n), settled_tick: 5n, settled_version: 9n }];
+  const market = observeMarket(s, config);
+  assert.deepEqual(market.stations.map(b => b.id).sort(), ['P01', 'P02']);
+  assert.deepEqual(market.stations.find(b => b.id === 'P01')!.wants, ['components']);
+  assert.equal(market.stations.find(b => b.id === 'P02')!.gives.food, 3);
+});
+test('a resource without upkeep is valued without a coverage ratio', () => {
+  const s = producer(); s.self.upkeep_per_tick = bundle(1n, 1n, 0n);
+  const value = plan(s, spendable(s, []), observeMarket(s, config), config).value.components;
+  assert.ok(Number.isFinite(value) && value >= 0.1);
+});
+test('the latest cleared offer sets the price, and a cleared ratio below par reopens at par', () => {
+  const s = producer(); s.advertisements.items = [ad('P01', [2], [3])];
+  const cleared = (id: string, created: bigint, give: bigint) => ours(s, { offer_id: id, recipient_id: 'P01', give: bundle(0n, 0n, give), receive: bundle(0n, 1n, 0n), created_tick: created, status: 2 });
+  s.offers.items = [cleared('newer', 8n, 10n), cleared('older', 7n, 1n)];
+  assert.equal(pairHistory(s, 'P01', 'components', 'food', config).cleared?.offer_id, 'newer');
+  const market = observeMarket(s, config), p = plan(s, spendable(s, []), market, config);
+  assert.equal(askTerms(s, p, market, market.stations.find(b => b.id === 'P01')!, 'components', 'food', config)!.premium, 0n);
+});
+test('terms never receive fewer units than they give', () => {
+  const s = producer(); s.advertisements.items = [ad('P01', [2], [3])];
+  const market = observeMarket(s, config), p = plan(s, spendable(s, []), market, config);
+  assert.ok(p.room.food > 0n);
+  assert.equal(askTerms(s, p, market, market.stations.find(b => b.id === 'P01')!, 'components', 'food', { ...config, lot: 0n }), undefined);
+});
+test('an inbound exchange that would breach the reserve is refused even when valuable', () => {
+  const s = producer(); s.self.inventory = bundle(3n, 20n, 80n);
+  s.offers.items = [offer({ offer_id: 'drain', proposer_id: 'P01', give: bundle(0n, 10n, 0n), receive: bundle(3n, 0n, 0n), expires_tick: 20n })];
+  const d = decide(s, [], memory(), config);
+  assert.notDeepEqual(d.action, { kind: 'accept', body: { offer_id: 'drain' } });
+});
+test('an in-flight offer counts as the open ask for its station and resource', () => {
+  const s = producer(); s.advertisements.items = [ad('P01', [2], [3])];
+  const first = decide(s, [], memory(), config);
+  assert.equal(first.action.kind, 'offer');
+  const again = decide(s, [{ requestId: 'q', tick: s.tick, action: first.action }], memory(), config);
+  assert.ok(again.action.kind !== 'offer' || again.action.body.recipient_id !== 'P01' || again.action.body.receive.food === 0n);
+});
+test('an offer is only safe if we can pay at every tick it could settle', () => {
+  const s = producer(); s.self.inventory = bundle(20n, 20n, 1n);
+  s.advertisements.items = [ad('P01', [2], [3])];
+  const d = decide(s, [], memory(), config);
+  assert.ok(d.action.kind !== 'offer' || d.action.body.give.components <= 1n);
+});
+test('the advertisement is withdrawn when there is nothing to sell or seek, and replaced when its needs change', () => {
+  const s = producer({ tick: 118n }); s.self.inventory = zero(); s.self.upkeep_per_tick = zero(); s.self.last_production = zero(); s.self.produced_total = zero();
+  s.advertisements.items = [{ ...ad('ours', [3], [1], 119n), advertisement_id: 'own' }];
+  assert.deepEqual(decide(s, [], memory(), config).action, { kind: 'withdraw', body: { object_id: 'own' } });
+  const t = producer(); const d = decide(t, [], memory(), config);
+  if (d.action.kind !== 'advertise') throw new Error('Expected advertisement');
+  t.advertisements.items = [{ ...d.action.body, seeking: { items: [] }, advertisement_id: 'own', station_id: 'ours', status: 1 }];
+  assert.equal(decide(t, [], memory(), config).action.kind, 'advertise');
+});
+test('the most recent identical offer decides whether accepted terms may repeat', () => {
+  const s = producer(); s.advertisements.items = [ad('P01', [2], [3])];
+  const first = decide(s, [], memory(), config);
+  if (first.action.kind !== 'offer') throw new Error('Expected offer');
+  const body = first.action.body;
+  const sent = (id: string, created: bigint, status: number) => ours(s, { ...body, offer_id: id, created_tick: created, status });
+  s.offers.items = [sent('newer', 9n, 2), sent('older', 5n, 4)];
+  const again = decide(s, [], first.nextMemory, config);
+  assert.equal(again.action.kind, 'offer');
+});
+test('a station with nothing to spare still advertises what it seeks', () => {
+  const s = producer(); s.self.inventory = zero(); s.self.last_production = zero(); s.self.produced_total = zero();
+  const d = decide(s, [], memory(), config);
+  assert.equal(d.action.kind, 'advertise');
+  if (d.action.kind === 'advertise') { assert.deepEqual(d.action.body.selling.items, []); assert.ok(d.action.body.seeking.items.length > 0); }
 });

@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { EngineOptions, Transport } from '../engine';
-const f = vi.hoisted(() => ({ sockets: [] as (EventEmitter & { protocol: string; readyState: number; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn> })[], options: undefined as EngineOptions | undefined, transport: undefined as Transport | undefined, unlock: vi.fn(), journalAppend: vi.fn(), mirrorAppend: vi.fn(), journalClose: vi.fn(), loadEnv: vi.fn(), read: vi.fn(), stopped: false, idle: vi.fn(), fail: vi.fn(), receive: vi.fn(), disconnected: vi.fn(), record: vi.fn(), journalResolve: vi.fn() }));
+const f = vi.hoisted(() => ({ sockets: [] as (EventEmitter & { protocol: string; readyState: number; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn>; ping: ReturnType<typeof vi.fn> })[], options: undefined as EngineOptions | undefined, transport: undefined as Transport | undefined, unlock: vi.fn(), journalAppend: vi.fn(), mirrorAppend: vi.fn(), journalClose: vi.fn(), loadEnv: vi.fn(), read: vi.fn(), stopped: false, idle: vi.fn(), fail: vi.fn(), receive: vi.fn(), disconnected: vi.fn(), record: vi.fn(), journalResolve: vi.fn(), exec: vi.fn(), snapshot: undefined as unknown }));
+vi.mock('node:child_process', () => ({ execFileSync: f.exec }));
 vi.mock('node:fs', () => ({ readFileSync: f.read }));
 vi.mock('../persistence', () => ({
   acquireLock: vi.fn(() => f.unlock),
@@ -14,7 +15,8 @@ vi.mock('../engine', () => ({ Engine: class {
   connect(transport: Transport) { f.transport = transport; return 1; }
   stop() { f.stopped = true; }
   idle = f.idle; fail = f.fail; receive = f.receive; disconnected = f.disconnected; record = f.record;
-  state = { snapshot: undefined };
+  get state() { return { snapshot: f.snapshot }; }
+  config = {}; memory = { attempted: {} };
 } }));
 vi.mock('ws', () => ({ default: class extends EventEmitter {
   static OPEN = 1;
@@ -25,7 +27,7 @@ vi.mock('ws', () => ({ default: class extends EventEmitter {
 let signals: Map<string, () => void>;
 beforeEach(() => {
   vi.resetModules(); vi.clearAllMocks(); vi.useFakeTimers();
-  f.sockets.length = 0; f.stopped = false; f.options = undefined; f.idle.mockResolvedValue(undefined);
+  f.sockets.length = 0; f.stopped = false; f.options = undefined; f.snapshot = undefined; f.read.mockReset(); f.exec.mockReset(); f.idle.mockResolvedValue(undefined);
   signals = new Map();
   vi.spyOn(process, 'once').mockImplementation(((event: string, callback: () => void) => { signals.set(event, callback); return process; }) as typeof process.once);
   vi.spyOn(process, 'loadEnvFile').mockImplementation(f.loadEnv);
@@ -130,4 +132,47 @@ test('strategy listing needs no endpoint, credentials, journal or socket', async
 });
 test('invalid strategy selection fails before connecting', async () => {
   process.argv.push('--strategy', 'not-registered'); await start(); expect(process.exitCode).toBe(1); expect(f.sockets).toHaveLength(0);
+});
+
+const identity = (s: object) => f.options!.identity!({ run_id: 'run', self_station_id: 'P01', advertisements: { items: [] }, ...s } as unknown as Parameters<NonNullable<EngineOptions['identity']>>[0]);
+const manifest = () => f.record.mock.calls.map(([entry]) => entry).find(entry => entry.kind === 'manifest')!.payload;
+test('manifest records version, commit, schema checksum and credential-free endpoint', async () => {
+  f.read.mockImplementation((path: string) => path === 'package.json' ? '{"version":"1.2.3"}' : Buffer.from('schema'));
+  f.exec.mockReturnValue('abc123\n');
+  await start(); f.sockets[0].emit('open'); identity({});
+  expect(manifest()).toMatchObject({ app_version: '1.2.3', git_commit: 'abc123', endpoint_host: '127.0.0.1', endpoint_port: '3001', strategy: 'baseline', exercise: false });
+  expect(manifest().schema_sha256).toHaveLength(64); expect(manifest().connect_utc).toEqual(expect.any(String));
+});
+test.each([['ws://example.com/ws', '80'], ['wss://example.com/ws', '443']])('manifest without metadata defaults the %s port', async (endpoint, port) => {
+  vi.stubEnv('BAZAAR_ENDPOINT', endpoint); f.exec.mockImplementation(() => { throw new Error('no git'); });
+  process.argv.push('--exercise'); await start(); identity({});
+  expect(manifest()).toMatchObject({ app_version: undefined, git_commit: undefined, schema_sha256: undefined, endpoint_port: port, strategy: 'exercise' });
+});
+const finalState = (outcome: unknown, first_failure_tick: unknown) => ({
+  outcome, self: { failed_once: false, first_failure_tick, inventory: {}, health: 100n },
+  offers: { items: [{ status: 1 }, { status: 2 }] }, advertisements: { items: [{ status: 1 }] },
+});
+test.each([
+  [{ null: true }, { null: true }, undefined, undefined, undefined],
+  [{ value: { collective_success: { null: true }, aborted: false } }, { value: 3n }, undefined, false, 3n],
+  [{ value: { collective_success: { value: true }, aborted: true } }, { null: true }, true, true, undefined],
+])('shutdown records a run summary from the final state (%#)', async (outcome, failure, collective, aborted, firstFailure) => {
+  f.snapshot = finalState(outcome, failure); await start(); f.options!.done!(); await Promise.resolve(); await Promise.resolve();
+  const summary = f.record.mock.calls.map(([entry]) => entry).find(entry => entry.kind === 'run-summary')!.payload;
+  expect(summary).toMatchObject({ success: true, collective_success: collective, aborted, first_failure_tick: firstFailure, unresolved_offers: 1, unresolved_advertisements: 1 });
+  expect(f.journalClose).toHaveBeenCalledOnce();
+});
+test('a failing run summary still closes the journal', async () => {
+  f.snapshot = finalState({ null: true }, { null: true }); f.idle.mockRejectedValue(new Error('disk failure'));
+  await start(); f.options!.done!(); for (let i = 0; i < 4; i++) await Promise.resolve();
+  expect(f.journalClose).toHaveBeenCalledOnce(); expect(process.exitCode).toBe(0);
+});
+test('keepalive pings only an open socket and transport events are journaled', async () => {
+  await start(); const ws = f.sockets[0]; ws.emit('open');
+  await vi.advanceTimersByTimeAsync(30000); expect(ws.ping).toHaveBeenCalledOnce();
+  ws.readyState = 0; await vi.advanceTimersByTimeAsync(30000); expect(ws.ping).toHaveBeenCalledOnce();
+  ws.emit('ping'); ws.emit('pong');
+  expect(f.record.mock.calls.map(([entry]) => entry.kind)).toEqual(expect.arrayContaining(['ws-open', 'ws-ping', 'ws-pong']));
+  ws.emit('close', 1006, Buffer.from('gone'));
+  expect(f.record).toHaveBeenCalledWith({ kind: 'ws-close', payload: { code: 1006, reason: 'gone' } });
 });

@@ -51,6 +51,16 @@ test('queue delay, computation and response are independent measurements; respon
   expect(h.sent.filter(m => m.sync)).toHaveLength(0);
 });
 
+test('a full in-flight window whose results are all known waits as reconciling', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  const h = harness({ config: { ...defaultConfig, maxInFlight: 1n } }); await h.ready();
+  const id = h.engine.state.pending[0].requestId;
+  h.receive({ result: result({ request_id: id }) }); await h.engine.idle();
+  expect(h.engine.state.pending).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(1000); await h.engine.idle();
+  expect(h.samples('activity').at(-1)).toMatchObject({ activity: 'reconciling', reason: 'Waiting for command reconciliation' });
+});
+
 test.each(['snapshot', 'rejection'])('%s resolves response once, even when repeated', async kind => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   const h = harness(); await h.ready(); const id = h.engine.state.pending[0].requestId;

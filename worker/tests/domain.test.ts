@@ -138,3 +138,10 @@ test('rate limit fallback is monotonic and defaults to the next processed tick',
   store.result(result({ code: 4, processed_tick: 2n })); assert.equal(store.blockedUntil, 3n);
   store.result(result({ code: 4, retry_after_tick: { value: 1n } })); assert.equal(store.blockedUntil, 3n);
 });
+test('a rejected in-flight acceptance is not debited from spendable stock', () => {
+  const s = snapshot(); s.offers.items = [offer({ offer_id: 'in', proposer_id: 'P01', give: bundle(5n, 0n, 0n), receive: bundle(0n, 0n, 3n), expires_tick: 20n })];
+  const p: Pending = { requestId: 'acc', tick: 0n, action: { kind: 'accept', body: { offer_id: 'in' } } };
+  const debited = spendable(s, [p]).components;
+  s.request_results.items = [result({ request_id: 'acc', ok: false, code: 5 })];
+  assert.equal(spendable(s, [p]).components, debited + 3n);
+});

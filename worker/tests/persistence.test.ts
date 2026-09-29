@@ -73,6 +73,14 @@ test('records buffered before any run identity are flushed to an unidentified fi
   assert.equal(JSON.parse(readFileSync(join(dir, files[0]), 'utf8')).kind, 'ws-error');
   new Journal(dir).close();
 });
+test('a journal keeps the file it resolved first', async () => {
+  const dir = temporaryDirectory('bazaar-journal-resolve-');
+  const journal = new Journal(dir);
+  journal.resolve('run-a', 'P01'); journal.resolve('run-b', 'P01');
+  await journal.append({ kind: 'state', payload: { run_id: 'run-a' } }); journal.close();
+  const files = readdirSync(dir);
+  assert.equal(files.length, 1); assert.match(files[0], /-P01-run-a\.jsonl$/);
+});
 test('torn journal fails closed instead of losing pending tracking', () => {
   const dir = temporaryDirectory('bazaar-torn-');
   writeFileSync(join(dir, 'events.jsonl'), '{"kind":');

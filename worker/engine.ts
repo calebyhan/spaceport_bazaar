@@ -9,6 +9,7 @@ import type { RecordEntry, ResponsivenessSample, Sink } from './persistence';
 import { getStrategy, type StrategyName } from './strategies';
 import { exercise } from './exercise';
 import { deriveMarketEvents, summarizeTick } from './analysis';
+import { max } from './domain';
 export interface Transport { send(bytes: Uint8Array): void; close(): void }
 export interface EngineOptions {
   sink: Sink; config?: Config; exercise?: boolean; previous?: RecordEntry[];
@@ -178,7 +179,7 @@ export class Engine {
       // object itself: it can carry endpoint/credential text.
       this.record({ kind: 'message-error', direction: 'inbound', payload: {
         raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length,
-        error: error instanceof Error ? error.message : 'Unknown message error',
+        error: (error as Error).message,
       } });
       this.fail();
     }
@@ -239,9 +240,6 @@ export class Engine {
         this.loggedResults.add(r.request_id);
         this.record({ kind: 'result', direction: 'inbound', requestId: r.request_id, payload: r });
         this.response(r.request_id, receivedAt);
-      }
-      for (const [id, timer] of this.syncTimers) {
-        if (!this.state.pending.some(p => p.requestId === id && !p.result)) { clearTimeout(timer); this.syncTimers.delete(id); }
       }
       if (this.readySequence === undefined) this.control('ready');
       if (this.options.exercise && this.exerciseSync) {
@@ -306,7 +304,7 @@ export class Engine {
         const current = s!;
         const epoch = this.state.epoch, revision = this.state.revision;
         // Facts learned from results that no snapshot records; see Memory.
-        if (!this.options.exercise) this.memory = { ...this.memory, failed: [...this.state.failed].sort(), lag: this.state.lags.reduce((a, b) => a > b ? a : b, 0n) };
+        if (!this.options.exercise) this.memory = { ...this.memory, failed: [...this.state.failed].sort(), lag: this.state.lags.reduce(max, 0n) };
         const memoryBefore = json(this.memory);
         let action: Action;
         let decision: Awaited<ReturnType<Evaluate>>['decision'] | undefined;
