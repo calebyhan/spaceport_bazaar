@@ -1,7 +1,8 @@
 import { type Action, type Bundle, type Command, type Snapshot, type Pending, type Memory, type Config, resources } from './types';
 import { active, add, type Forecast, forecast, liabilityTotal, liabilities, mapBundle, max, min, productionEstimate, reserve, spendable, total, tradeSafety } from './domain';
 import { askTerms, canPay, observeMarket, plan, resourceNumber, worth } from './market';
-export const json = (value: unknown) => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v);
+import { json } from './serialization';
+export { json } from './serialization';
 export function fingerprint(action: Action): string {
   if (action.kind === 'offer' || action.kind === 'advertise') {
     const { expires_tick: expiry, ...terms } = action.body;

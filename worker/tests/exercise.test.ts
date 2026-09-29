@@ -1,0 +1,23 @@
+import { expect, test } from 'vitest';
+import { exercise } from '../exercise';
+import { snapshot, offer, result, bundle } from './fixtures';
+test('validator sequence emits exact prescribed terms and waits for the peer gift', () => {
+  const s = snapshot();
+  expect(exercise(s)).toEqual({ kind: 'advertise', body: { selling: { items: [1] }, seeking: { items: [2] }, expires_tick: 6n } });
+  s.request_results.items.push(result());
+  expect(exercise(s)).toEqual({ kind: 'advertise', body: { selling: { items: [] }, seeking: { items: [3] }, expires_tick: 6n } });
+  s.request_results.items.push(result());
+  expect(exercise(s)).toEqual({ kind: 'offer', body: { recipient_id: 'P02', give: bundle(2n,0n,0n), receive: bundle(0n,1n,0n), expires_tick: 6n } });
+  s.request_results.items.push(result());
+  s.offers.items = [offer(), offer({ proposer_id: 'P02', recipient_id: 'other' }), offer({ proposer_id: 'P02', status: 2 }), offer({ proposer_id: 'P02' })];
+  expect(exercise(s)).toEqual({ kind: 'wait' });
+  s.offers.items.push(offer({ offer_id: 'validator-gift', proposer_id: 'P02', give: bundle(0n,0n,1n) }));
+  expect(exercise(s)).toEqual({ kind: 'accept', body: { offer_id: 'validator-gift' } });
+  s.request_results.items.push(result());
+  expect(() => exercise(s)).toThrow('Validator advertisement missing');
+  s.advertisements.items = [{ advertisement_id: 'ad', station_id: 'ours', status: 1, selling: { items: [] }, seeking: { items: [] }, expires_tick: 6n }];
+  expect(exercise(s)).toEqual({ kind: 'withdraw', body: { object_id: 'ad' } });
+  s.request_results.items.push(result()); expect(exercise(s)).toBe('done');
+  s.request_results.items.push(result()); expect(() => exercise(s)).toThrow('Unexpected validator state');
+  s.request_results.items = [result({ ok: false })]; expect(() => exercise(s)).toThrow('Validator command rejected');
+});

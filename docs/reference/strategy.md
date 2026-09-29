@@ -1,5 +1,7 @@
 ---
 title: "Autonomous Trading Strategy"
+[Documentation index](../README.md)
+
 status: "Planning document"
 scope: "High-level market and decision strategy; not an implementation specification."
 ---
@@ -7,7 +9,7 @@ scope: "High-level market and decision strategy; not an implementation specifica
 # Autonomous Trading Strategy
 
 > **Status note (2026-09-24).** Live runs 37–40 changed parts of this plan.
-> The rules in [live run learnings](live-run-learnings.md#standing-decisions)
+> The rules in [live run learnings](../live-run-learnings.md#standing-decisions)
 > take precedence: we never trade below 1:1 and send no gifts, so the
 > "fair-market posture" concessions and gift guidance below no longer apply.
 > Resources we don't produce are bought for the whole run, not a short
@@ -22,7 +24,7 @@ counterparty behavior. It deliberately does not prescribe code structure,
 model providers, or wire-protocol implementation.
 
 The primary source for game facts is the
-[agent-readable handbook](spaceport-bazaar-agent-readable.md). The live server
+[agent-readable handbook](protocol.md). The live server
 snapshot remains authoritative for the rules and configuration of a particular
 run.
 

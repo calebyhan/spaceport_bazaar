@@ -10,8 +10,8 @@ last_updated: "2026-09-24"
 
 This document records what we have learned about the game and the strategic
 implications of those mechanics. It supplements the
-[agent-readable handbook](spaceport-bazaar-agent-readable.md) and the
-[autonomous trading strategy](autonomous-trading-strategy.md).
+[agent-readable handbook](reference/protocol.md) and the
+[autonomous trading strategy](reference/strategy.md).
 
 Not every observation has the same authority:
 

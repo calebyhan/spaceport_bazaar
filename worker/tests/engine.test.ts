@@ -1,14 +1,17 @@
-import test from 'node:test';
+import { afterEach, test } from 'vitest';
 import assert from 'node:assert/strict';
 import { Engine } from '../engine';
 import { encodeServer, decodeClient } from '../codec';
 import type { RecordEntry } from '../persistence';
 import { snapshot, offer, result } from './fixtures';
 import type { Snapshot } from '../types';
+const engines: Engine[] = [];
+afterEach(() => { for (const engine of engines) engine.disconnected(engine.state.epoch); engines.length = 0; });
 function harness(append?: (entry: RecordEntry) => Promise<void>) {
   const sent: ReturnType<typeof decodeClient>[] = [], records: RecordEntry[] = [];
   let fatal = false;
   const e = new Engine({ sink: { append: async entry => { records.push(entry); await append?.(entry); } }, fatal: () => { fatal = true; } });
+  engines.push(e);
   const transport = { send: (bytes: Uint8Array) => sent.push(decodeClient(bytes)), close: () => {} };
   let epoch = e.connect(transport);
   const receive = (msg: unknown) => e.receive(epoch, encodeServer(msg));
@@ -73,6 +76,8 @@ test('exact retries only recover recorded results and preserve request identity'
   h.receive({ result: result({ request_id: p.requestId }) });
   assert.equal(h.e.retryRecorded(p.requestId), true);
   assert.deepEqual(commands(h.sent)[0], commands(h.sent)[1]);
+  await h.e.idle();
+  assert.ok(h.records.some(r => r.kind === 'retry-sent' && r.requestId === p.requestId && r.direction === 'outbound'));
 });
 test('persistence failure prevents sending and leaves a fatal stop', async () => {
   const h = harness(async entry => { if (entry.kind === 'command') throw new Error('disk full'); });

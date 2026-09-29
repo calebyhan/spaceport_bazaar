@@ -2,12 +2,29 @@ import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, r
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
-import { json } from './policy';
+import { json } from './serialization';
 import type { Snapshot } from './types';
 export interface RecordEntry {
-  connection?: { processId: string; epoch: number }; kind: string; payload: unknown;
+  strategy?: string; connection?: { processId: string; epoch: number }; kind: string; payload: unknown;
   direction?: 'internal' | 'inbound' | 'outbound'; requestId?: string;
   sequence?: number; at?: string; mono?: string;
+}
+export interface ResponsivenessSample {
+  metric: 'event' | 'queue' | 'decision' | 'response' | 'deadline' | 'activity';
+  duration_ms?: number;
+  request_id?: string;
+  action?: string;
+  intentional_wait?: boolean;
+  missed_deadline?: boolean;
+  busy?: boolean;
+  source?: 'policy' | 'engine' | 'exercise';
+  reason?: string;
+  deadline_kind?: 'decision' | 'response';
+  observed_at?: number;
+  activity?: string;
+  since?: number;
+  deadline_ms?: number;
+  snapshot_sequence?: string;
 }
 export interface Sink {
   append(entry: RecordEntry): Promise<void>;
@@ -123,7 +140,7 @@ export class SupabaseSink implements Sink {
       if (response.error) throw new Error('Snapshot persistence failed');
     }
     if (!this.runId) return;
-    const response = await this.client.from('events').insert({ run_id: this.runId, direction: entry.direction ?? 'internal', kind: entry.kind, request_id: entry.requestId, source_sequence: entry.kind === 'state' ? payload.snapshot_sequence : undefined, payload: { ...payload, _connection: entry.connection, _sequence: entry.sequence, _at: entry.at, _mono: entry.mono } });
+    const response = await this.client.from('events').insert({ run_id: this.runId, direction: entry.direction ?? 'internal', kind: entry.kind, request_id: entry.requestId, source_sequence: entry.kind === 'state' ? payload.snapshot_sequence : undefined, payload: { ...payload, _strategy: entry.strategy, _connection: entry.connection, _sequence: entry.sequence, _at: entry.at, _mono: entry.mono } });
     if (response.error) throw new Error('Event persistence failed');
     if (entry.kind === 'command') {
       const response = await this.client.from('commands').upsert({ run_id: this.runId, request_id: entry.requestId, command_type: payload.action.kind, status: 'prepared', command: payload }, { onConflict: 'run_id,request_id' });

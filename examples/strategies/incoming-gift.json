@@ -1,0 +1,155 @@
+{
+  "strategy": "baseline",
+  "state": {
+    "type": 1,
+    "protocol_version": "2.0",
+    "run_id": "test-run",
+    "snapshot_sequence": "1",
+    "world_version": "1",
+    "tick": "0",
+    "phase": 2,
+    "self_station_id": "ours",
+    "rules": {
+      "rules_version": "test",
+      "duration_ticks": "6",
+      "tick_duration_ms": "100",
+      "resource_order": {
+        "items": [
+          1,
+          2,
+          3
+        ]
+      },
+      "max_health": "100",
+      "shortage_damage_per_unit": "5",
+      "recovery_per_fully_supplied_tick": "5",
+      "max_publication_ttl_ticks": "6",
+      "max_offer_ttl_ticks": "6",
+      "new_commands_per_station_per_tick": "5",
+      "max_request_records_per_station": "100",
+      "max_open_outgoing_offers": "5",
+      "max_command_bytes": "16384"
+    },
+    "self": {
+      "station_id": "ours",
+      "inventory": {
+        "water": "20",
+        "food": "1",
+        "components": "8"
+      },
+      "health": "100",
+      "failed_once": false,
+      "first_failure_tick": {
+        "null": true
+      },
+      "upkeep_per_tick": {
+        "water": "1",
+        "food": "1",
+        "components": "1"
+      },
+      "last_production": {
+        "water": "0",
+        "food": "0",
+        "components": "0"
+      },
+      "specialty": 1,
+      "last_unmet_upkeep": {
+        "water": "0",
+        "food": "0",
+        "components": "0"
+      },
+      "fully_supplied_ticks": "0",
+      "shortage_ticks": "0",
+      "current_shortage_streak": "0",
+      "longest_shortage_streak": "0",
+      "produced_total": {
+        "water": "0",
+        "food": "0",
+        "components": "0"
+      },
+      "consumed_total": {
+        "water": "0",
+        "food": "0",
+        "components": "0"
+      },
+      "unmet_total": {
+        "water": "0",
+        "food": "0",
+        "components": "0"
+      },
+      "imported_total": {
+        "water": "0",
+        "food": "0",
+        "components": "0"
+      },
+      "exported_total": {
+        "water": "0",
+        "food": "0",
+        "components": "0"
+      }
+    },
+    "directory": {
+      "items": [
+        {
+          "station_id": "ours",
+          "display_name": "Ours"
+        },
+        {
+          "station_id": "supplier-z",
+          "display_name": "Peer"
+        }
+      ]
+    },
+    "offers": {
+      "items": []
+    },
+    "advertisements": {
+      "items": []
+    },
+    "request_results": {
+      "items": []
+    },
+    "transactions": {
+      "items": []
+    },
+    "outcome": {
+      "null": true
+    }
+  },
+  "incomingOffer": {
+    "closed_tick": {
+      "null": true
+    },
+    "transaction_id": {
+      "null": true
+    },
+    "offer_id": "gift",
+    "proposer_id": "supplier-z",
+    "recipient_id": "ours",
+    "give": {
+      "water": "0",
+      "food": "2",
+      "components": "0"
+    },
+    "receive": {
+      "water": "0",
+      "food": "0",
+      "components": "0"
+    },
+    "expires_tick": "3",
+    "created_tick": "0",
+    "created_version": "1",
+    "status": 1
+  },
+  "expected": {
+    "baseline": {
+      "kind": "accept",
+      "body": {
+        "offer_id": "gift"
+      }
+    },
+    "observe": {
+      "kind": "wait"
+    }
+  }
+}

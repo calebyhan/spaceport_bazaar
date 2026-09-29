@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { Engine } from './engine';
 import { acquireLock, Journal, SupabaseSink, type Sink } from './persistence';
+import { workerOptions } from './options';
+import { listStrategies } from './strategies';
 import { defaultConfig } from './types';
 
 const SUBPROTOCOL = 'bazaar.protobuf.v2';
@@ -20,6 +22,8 @@ function schemaChecksum(): string | undefined {
 
 async function main() {
   if (process.env.BAZAAR_ENV_FILE) process.loadEnvFile(process.env.BAZAAR_ENV_FILE);
+  const selection = workerOptions(process.argv.slice(2), process.env);
+  if (selection.list) { console.log(JSON.stringify(listStrategies(), null, 2)); return; }
   const endpoint = process.env.BAZAAR_ENDPOINT;
   let token = process.env.BAZAAR_TOKEN;
   if (!token && process.env.BAZAAR_CREDENTIAL_FILE) {
@@ -29,17 +33,17 @@ async function main() {
   if (!endpoint || !token) throw new Error('Missing runtime endpoint or token');
   const url = new URL(endpoint);
   if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid endpoint');
-  const exercise = process.argv.includes('--exercise');
+  const exercise = selection.exercise;
   // Replaced by BAZAAR_JOURNAL_DIR (one file per run instead of one growing
   // file forever); fail loudly rather than silently ignoring a stale setting.
   if (process.env.BAZAAR_JOURNAL) throw new Error('BAZAAR_JOURNAL was replaced by BAZAAR_JOURNAL_DIR');
   const journal = new Journal(process.env.BAZAAR_JOURNAL_DIR ?? '.local/journal');
   let mirror: Sink | undefined;
-  if (process.argv.includes('--supabase')) {
+  if (selection.supabase) {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) throw new Error('Missing persistence configuration');
     mirror = new SupabaseSink(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
   }
-  const config = { ...defaultConfig };
+  const config = { ...defaultConfig, version: selection.strategy.version };
   const settings = {
     reserveTicks: 'BAZAAR_RESERVE_TICKS', planTicks: 'BAZAAR_PLAN_TICKS', urgentTicks: 'BAZAAR_URGENT_TICKS', stockpileTicks: 'BAZAAR_STOCKPILE_TICKS',
     lot: 'BAZAAR_LOT', ttl: 'BAZAAR_TTL', cooldownTicks: 'BAZAAR_COOLDOWN_TICKS', maxOpenOffers: 'BAZAAR_MAX_OPEN_OFFERS',
@@ -86,7 +90,7 @@ async function main() {
   };
   const { packageVersion, gitCommit } = appVersion();
   const checksum = schemaChecksum();
-  const engine = new Engine({ config, exercise, previous: journal.previous,
+  const engine = new Engine({ config, exercise, strategyName: selection.strategy.name, previous: journal.previous,
     sink: {
       append: async entry => { await journal.append(entry); await mirror?.append(entry); },
       resolve: (runId, stationId) => journal.resolve(runId, stationId),
@@ -101,7 +105,7 @@ async function main() {
         endpoint_host: url.hostname, endpoint_port: url.port || (url.protocol === 'wss:' ? '443' : '80'),
         rules: s.rules,
         initial: { phase: s.phase, tick: s.tick, world_version: s.world_version, snapshot_sequence: s.snapshot_sequence, self: s.self, advertisements: s.advertisements.items },
-        config, exercise, llm_enabled: false,
+        strategy: exercise ? 'exercise' : selection.strategy.name, config, exercise, llm_enabled: false,
       } });
     },
     done: () => finish(true), fatal: () => { void engine.idle().then(() => finish(false)).catch(() => finish(false)); },
@@ -142,8 +146,8 @@ async function main() {
       }
     });
   };
-  process.once('SIGINT', () => { engine.stopped = true; void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
-  process.once('SIGTERM', () => { engine.stopped = true; void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
+  process.once('SIGINT', () => { engine.stop(); void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
+  process.once('SIGTERM', () => { engine.stop(); void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
   // Acquire before opening a socket: a second connection can fence the first
   // at the server before its initial snapshot reveals the run identity.
   unlockHost = acquireLock('host-worker', 'single-owner');

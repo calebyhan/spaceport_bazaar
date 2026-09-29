@@ -29,6 +29,8 @@ create table if not exists public.events (
 create index if not exists events_run_id_id_desc_idx on public.events (run_id, id desc);
 create index if not exists events_run_id_request_id_idx on public.events (run_id, request_id) where request_id is not null;
 
+comment on column public.events.payload is 'Raw protocol/event payload. Responsiveness samples use metric=event|queue|decision|response|deadline|activity.';
+
 create table if not exists public.current_snapshots (
   run_id uuid primary key references public.runs(id) on delete cascade,
   snapshot_sequence bigint,

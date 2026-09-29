@@ -1,6 +1,6 @@
 import { bazaar } from './generated/bazaar';
 import Long from 'long';
-import { json } from './policy';
+import { json } from './serialization';
 import type { Snapshot, Result } from './types';
 const wire = bazaar.v2;
 function integers(value: unknown): unknown {

@@ -17,7 +17,7 @@ Related documents:
 - [Game mechanics learnings](game-mechanics-learnings.md#live-run-observations)
   holds the server and rule facts observed live (tick timing, production
   schedule, lag, result codes).
-- [Autonomous worker](autonomous-worker.md) describes the policy and engine as
+- [Autonomous worker](operations/worker.md) describes the policy and engine as
   built, including the code changes each run prompted.
 - [Real-run logging note](real-run-logging-note.md) defines what the journal
   must capture.
@@ -184,7 +184,7 @@ offering P08 6 water per tick in ticks 15–31. Whether P08 would have accepted
 ## Standing decisions
 
 These are rules the team has set. They override the fair-terms and gift
-guidance in the [trading strategy](autonomous-trading-strategy.md).
+guidance in the [trading strategy](reference/strategy.md).
 
 - **Price floor ("MSRP").** We never receive fewer units than we give, and we
   send no gifts. The code reads MSRP as 1:1 unit parity; confirm if a

@@ -53,3 +53,8 @@ time { color: var(--muted); font-size: .8rem; }
   .timeline li { grid-template-columns: 74px 1fr; }
   .timeline time { grid-column: 2; }
 }
+
+.responsiveness { margin-top: 24px; overflow-x: auto; }
+.responsiveness table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+.responsiveness th, .responsiveness td { padding: 12px; text-align: left; border-bottom: 1px solid var(--line); }
+.responsiveness thead { color: var(--muted); }

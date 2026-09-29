@@ -2,14 +2,17 @@ import { randomUUID } from 'node:crypto';
 import type { Action, Command, Config, Memory, Pending, Snapshot } from './types';
 import { defaultConfig } from './types';
 import { decode, encode, type ServerMessage } from './codec';
-import { decide, fingerprint } from './policy';
+import { json } from './serialization';
+import { StrategyExecutor, StrategyTimeout, type Evaluate } from './strategy';
 import { StateStore } from './state';
-import type { RecordEntry, Sink } from './persistence';
+import type { RecordEntry, ResponsivenessSample, Sink } from './persistence';
+import { getStrategy, type StrategyName } from './strategies';
 import { exercise } from './exercise';
 import { deriveMarketEvents, summarizeTick } from './analysis';
 export interface Transport { send(bytes: Uint8Array): void; close(): void }
 export interface EngineOptions {
   sink: Sink; config?: Config; exercise?: boolean; previous?: RecordEntry[];
+  strategyName?: string; strategy?: Evaluate; decisionTimeoutMs?: number; responseTimeoutMs?: number;
   identity?: (s: Snapshot) => void; done?: () => void; fatal?: () => void;
 }
 function restorePending(payload: unknown): Pending & { run: string } {
@@ -41,24 +44,101 @@ export class Engine {
   private capacityExhausted = false;
   // One timer per in-flight command, so a later send never hides an earlier one.
   private readonly syncTimers = new Map<string, NodeJS.Timeout>();
-  private restored = false;
   private recordSequence = 0;
   // Request results already journaled; each state repeats them all.
   private readonly loggedResults = new Set<string>();
+  private readonly sentAt = new Map<string, number>();
+  private readonly missedResponses = new Set<string>();
+  private strategyBusy = false;
+  private readonly executor: StrategyExecutor;
+  readonly strategyName: StrategyName;
+  private get strategyId() { return this.options.exercise ? 'exercise' : this.strategyName; }
+  private queuedAt = 0;
+  private activity = 'starting';
+  private activityReason = 'Waiting for the first state';
+  private activitySince = Date.now();
+  private pendingSince = Date.now();
+  private reconcileSince = Date.now();
+  private heartbeat?: NodeJS.Timeout;
+  private heartbeatPending = false;
+  private get decisionTimeoutMs() { return this.options.decisionTimeoutMs ?? 2000; }
+  private get responseTimeoutMs() { return this.options.responseTimeoutMs ?? 2000; }
+  private now() { return performance.timeOrigin + performance.now(); }
+  private setActivity(activity: string, reason: string) {
+    if (this.activity !== activity || this.activityReason !== reason) this.activitySince = Date.now();
+    if (activity === 'awaiting_response') this.activitySince = this.pendingSince;
+    if (activity === 'reconciling') this.activitySince = this.reconcileSince;
+    this.activity = activity; this.activityReason = reason;
+    this.reportActivity();
+  }
+  private reportActivity() {
+    if (this.heartbeatPending || !this.identity) return;
+    this.heartbeatPending = true;
+    void this.record({ kind: 'responsiveness', payload: {
+      metric: 'activity', activity: this.activity, reason: this.activityReason,
+      observed_at: Date.now(), since: this.activitySince,
+      deadline_ms: this.activity === 'deciding' ? this.decisionTimeoutMs : this.activity === 'awaiting_response' ? this.responseTimeoutMs : 10000,
+    } satisfies ResponsivenessSample }).finally(() => { this.heartbeatPending = false; }).catch(() => {});
+  }
+  private response(requestId: string, receivedAt: number) {
+    const sent = this.sentAt.get(requestId);
+    if (sent === undefined) return;
+    const elapsed = receivedAt - sent;
+    if (elapsed > this.responseTimeoutMs) this.responseDeadline(requestId);
+    this.reconcileSince = Date.now();
+    this.sentAt.delete(requestId);
+    this.missedResponses.delete(requestId);
+    clearTimeout(this.syncTimers.get(requestId));
+    this.syncTimers.delete(requestId);
+    this.record({ kind: 'responsiveness', requestId, payload: {
+      metric: 'response', duration_ms: elapsed, request_id: requestId,
+    } satisfies ResponsivenessSample });
+  }
+  private responseDeadline(requestId: string) {
+    if (!this.sentAt.has(requestId) || this.missedResponses.has(requestId)) return;
+    this.missedResponses.add(requestId);
+    this.record({ kind: 'responsiveness', requestId, payload: { metric: 'deadline', deadline_kind: 'response', request_id: requestId, missed_deadline: true } satisfies ResponsivenessSample });
+  }
+  private noAction(reason: string, s?: Snapshot) {
+    this.setActivity('waiting', reason);
+    this.record({ kind: 'decision', payload: { source: 'engine', action: { kind: 'wait' },
+      nextMemory: this.memory, run: this.identity, epoch: this.state.epoch,
+      snapshot_sequence: s?.snapshot_sequence, explanation: { rationale: reason } } });
+    this.record({ kind: 'responsiveness', payload: { metric: 'decision', source: 'engine',
+      action: 'wait', intentional_wait: true, reason } satisfies ResponsivenessSample });
+  }
   readonly config: Config;
-  constructor(private options: EngineOptions) { this.config = options.config ?? defaultConfig; }
+  constructor(private options: EngineOptions) {
+    const selected = getStrategy(options.strategyName);
+    this.strategyName = selected.name;
+    this.executor = new StrategyExecutor(selected.name);
+    this.config = options.config ?? { ...defaultConfig, version: selected.version };
+  }
   connect(transport: Transport) {
     this.transport = transport; this.ready = false; this.readySequence = undefined;
-    this.clearSyncTimers();
-    return this.state.newConnection();
+    clearInterval(this.heartbeat);
+    this.heartbeat = setInterval(() => this.reportActivity(), 1000);
+    this.heartbeat.unref();
+    const epoch = this.state.newConnection();
+    this.setActivity('starting', 'Waiting for connection state');
+    return epoch;
   }
   disconnected(epoch: number) {
     if (epoch !== this.state.epoch) return;
-    this.ready = false; this.transport = undefined; this.clearSyncTimers();
+    this.ready = false; this.transport = undefined;
+    clearInterval(this.heartbeat);
+    if (!this.strategyBusy) this.executor.close();
+    if (!this.stopped) this.setActivity('disconnected', 'Waiting to reconnect; unresolved commands remain blocked');
+  }
+  stop() {
+    this.stopped = true;
+    this.clearSyncTimers(); clearInterval(this.heartbeat);
+    this.executor.close();
+    this.setActivity('stopped', 'Client stopped');
   }
   fail() {
     if (this.stopped) return;
-    this.stopped = true; this.clearSyncTimers(); this.transport?.close(); this.options.fatal?.();
+    this.stop(); this.transport?.close(); this.options.fatal?.();
   }
   private clearSyncTimers() {
     for (const timer of this.syncTimers.values()) clearTimeout(timer);
@@ -68,7 +148,7 @@ export class Engine {
   // (WebSocket open/close/reconnect/etc.) events to the same journal, with
   // the same connection/sequence/timestamp stamping as internal records.
   record(entry: RecordEntry) {
-    const record = { ...entry, connection: { processId: this.processId, epoch: this.state.epoch },
+    const record = { ...entry, strategy: this.strategyId, connection: { processId: this.processId, epoch: this.state.epoch },
       sequence: this.recordSequence++, at: new Date().toISOString(), mono: process.hrtime.bigint().toString() };
     this.persistence = this.persistence.then(() => this.options.sink.append(record));
     // Never send another command after a persistence error. Do not log raw
@@ -90,7 +170,8 @@ export class Engine {
     if (this.stopped || epoch !== this.state.epoch) return;
     try {
       if (!binary) throw new Error('Text frames are unsupported');
-      this.message(epoch, decode(bytes), bytes);
+      const receivedAt = this.now();
+      this.message(epoch, decode(bytes), bytes, receivedAt);
     } catch (error) {
       // Preserve the raw evidence for a frame that failed to decode or
       // validate, before failing closed. Never log the raw transport error
@@ -103,8 +184,6 @@ export class Engine {
     }
   }
   private restore(s: Snapshot) {
-    if (this.restored) return;
-    this.restored = true;
     const pending = new Map<string, Pending>();
     for (const entry of this.options.previous ?? []) {
       if (entry.kind === 'command') {
@@ -112,7 +191,7 @@ export class Engine {
         if (p.run === s.run_id) pending.set(p.requestId, p);
       }
       if (entry.kind === 'cancelled' || entry.kind === 'control-rejected') pending.delete(entry.requestId ?? '');
-      if (entry.kind === 'decision') {
+      if (entry.kind === 'decision' && (entry.strategy ?? 'baseline') === this.strategyId) {
         const decision = entry.payload as { run: string; nextMemory: Memory };
         if (decision.run === s.run_id) {
           const m = decision.nextMemory;
@@ -123,9 +202,11 @@ export class Engine {
       }
     }
     this.state.pending = [...pending.values()];
+    this.pendingSince = Date.now();
   }
-  private message(epoch: number, msg: ServerMessage, bytes: Uint8Array) {
+  private message(epoch: number, msg: ServerMessage, bytes: Uint8Array, receivedAt: number) {
     const value = msg.state ?? msg.result ?? msg.readiness ?? msg.protocol_error!;
+    const wasBusy = this.strategyBusy;
     if (value.protocol_version !== '2.0') throw new Error('Protocol mismatch');
     const run = typeof value.run_id === 'string' ? value.run_id : value.run_id.value;
     if (this.identity && run && run !== this.identity) throw new Error('Run changed');
@@ -157,6 +238,7 @@ export class Engine {
         if (this.loggedResults.has(r.request_id)) continue;
         this.loggedResults.add(r.request_id);
         this.record({ kind: 'result', direction: 'inbound', requestId: r.request_id, payload: r });
+        this.response(r.request_id, receivedAt);
       }
       for (const [id, timer] of this.syncTimers) {
         if (!this.state.pending.some(p => p.requestId === id && !p.result)) { clearTimeout(timer); this.syncTimers.delete(id); }
@@ -164,7 +246,7 @@ export class Engine {
       if (this.readySequence === undefined) this.control('ready');
       if (this.options.exercise && this.exerciseSync) {
         if (s.self.inventory.water !== 28n || s.self.inventory.food !== 31n || s.self.inventory.components !== 31n || s.transactions.items.length !== 2 || s.request_results.items.length !== 5) throw new Error('Incorrect validator final state');
-        this.stopped = true;
+        this.stop();
         void this.persistence.then(() => { this.transport?.close(); this.options.done?.(); }).catch(() => this.options.fatal?.());
         return;
       }
@@ -175,10 +257,13 @@ export class Engine {
       this.state.result(msg.result);
       this.loggedResults.add(msg.result.request_id);
       this.record({ kind: 'result', direction: 'inbound', requestId: msg.result.request_id, payload: msg.result });
+      this.response(msg.result.request_id, receivedAt);
       if (msg.result.code === 2) throw new Error('Request ID conflict');
-    } else if (msg.protocol_error) {
-      const error = msg.protocol_error;
+    } else {
+      // decode guarantees exactly one recognized envelope.
+      const error = msg.protocol_error!;
       this.record({ kind: 'protocol_error', direction: 'inbound', requestId: error.request_id.value, payload: error });
+      this.response(error.request_id.value ?? '', receivedAt);
       if (error.close_session) { this.fail(); return; }
       if (error.code === 2) {
         this.capacityExhausted = true;
@@ -188,9 +273,11 @@ export class Engine {
         this.control('sync');
       } else { this.fail(); return; }
     }
-    this.schedule();
+    this.record({ kind: 'responsiveness', payload: { metric: 'event', duration_ms: this.now() - receivedAt, busy: Boolean(msg.state) && wasBusy } satisfies ResponsivenessSample });
+    this.schedule(receivedAt);
   }
-  schedule() {
+  schedule(receivedAt = this.now()) {
+    this.queuedAt = receivedAt;
     this.dirty = true;
     if (!this.cycling) void this.cycle().catch(() => this.fail());
   }
@@ -200,66 +287,106 @@ export class Engine {
     try {
       while (this.dirty && !this.stopped) {
         this.dirty = false;
+        this.setActivity('persisting', 'Waiting for durable event records');
         await this.persistence;
+        const queuedAt = this.queuedAt;
         const s = this.state.snapshot;
+        if (this.stopped) break;
         const inFlight = this.options.exercise ? 1n : this.config.maxInFlight;
-        if (!s || !this.ready || !this.transport || BigInt(this.state.pending.length) >= inFlight || this.capacityExhausted || s.tick < this.state.blockedUntil || s.phase !== 2 || s.self.failed_once) continue;
+        const reason = !s ? 'No state received' : !this.transport ? 'Disconnected' : !this.ready ? 'Waiting for readiness'
+          : BigInt(this.state.pending.length) >= inFlight ? 'Waiting for command reconciliation' : this.capacityExhausted ? 'Request capacity exhausted'
+          : s.tick < this.state.blockedUntil ? 'Rate limit backoff' : s.phase !== 2 ? 'Run is not trading'
+          : s.self.failed_once ? 'Station has permanently failed' : undefined;
+        if (reason) {
+          this.record({ kind: 'responsiveness', payload: { metric: 'queue', duration_ms: this.now() - queuedAt } satisfies ResponsivenessSample });
+          this.noAction(reason, s);
+          if (this.state.pending.length) this.setActivity(this.state.pending.some(p => !p.result) ? 'awaiting_response' : 'reconciling', reason);
+          continue;
+        }
+        const current = s!;
         const epoch = this.state.epoch, revision = this.state.revision;
+        // Facts learned from results that no snapshot records; see Memory.
+        if (!this.options.exercise) this.memory = { ...this.memory, failed: [...this.state.failed].sort(), lag: this.state.lags.reduce((a, b) => a > b ? a : b, 0n) };
+        const memoryBefore = json(this.memory);
         let action: Action;
-        let decision: ReturnType<typeof decide> | undefined;
+        let decision: Awaited<ReturnType<Evaluate>>['decision'] | undefined;
+        let decisionDuration = 0;
+        const exerciseStarted = this.now();
         if (this.options.exercise) {
-          const step = exercise(s);
+          const step = exercise(current);
           if (step === 'done') {
-            if (this.exerciseCapacity) continue;
+            if (this.exerciseCapacity) { this.noAction('Validator capacity probe already sent', current); continue; }
             action = { kind: 'advertise', body: { selling: { items: [1] }, seeking: { items: [2] }, expires_tick: 6n } };
-          } else if (step === 'sync') { this.control('sync'); continue; }
-          else action = step;
+          } else action = step;
+          decisionDuration = this.now() - exerciseStarted;
+          this.record({ kind: 'responsiveness', payload: { metric: 'queue', duration_ms: exerciseStarted - queuedAt } satisfies ResponsivenessSample });
         } else {
-          this.memory = { ...this.memory, failed: [...this.state.failed].sort(), lag: this.state.lags.reduce((a, b) => a > b ? a : b, 0n) };
-          decision = decide(s, this.state.pending, this.memory, this.config);
+          this.strategyBusy = true;
+          this.setActivity('deciding', 'Evaluating the latest state');
+          try {
+            const measured = await (this.options.strategy ?? this.executor.evaluate)({ snapshot: current, pending: this.state.pending, memory: this.memory, config: this.config }, this.decisionTimeoutMs, startedAt => {
+              this.record({ kind: 'responsiveness', payload: { metric: 'queue', duration_ms: Math.max(0, startedAt - queuedAt), snapshot_sequence: current.snapshot_sequence.toString() } satisfies ResponsivenessSample });
+            });
+            decision = measured.decision;
+            decisionDuration = measured.durationMs;
+          } catch (error) {
+            if (error instanceof StrategyTimeout) this.record({ kind: 'responsiveness', payload: { metric: 'deadline', deadline_kind: 'decision', missed_deadline: true } satisfies ResponsivenessSample });
+            throw error;
+          } finally { this.strategyBusy = false; if (!this.transport) this.executor.close(); }
           action = decision.action;
         }
+        this.setActivity('persisting', 'Recording the decision before transmission');
         // Let queued socket I/O run even when the local journal resolves
         // synchronously; a chain of resolved promises alone only drains microtasks.
         await new Promise<void>(resolve => setImmediate(resolve));
         // A wait references its snapshot (already journaled as a state record)
         // instead of copying it; actions keep the full input for audit.
-        if (decision) await this.record({ kind: 'decision', payload: action.kind === 'wait'
-          ? { ...decision, explanation: { ...decision.explanation, forecast: undefined }, run: s.run_id, epoch, snapshot: { snapshot_sequence: s.snapshot_sequence, world_version: s.world_version, tick: s.tick } }
-          : { ...decision, run: s.run_id, epoch, snapshot: s } });
-        if (action.kind === 'wait') continue;
+        if (decision) {
+          await this.record({ kind: 'decision', payload: action.kind === 'wait'
+            ? { ...decision, explanation: { ...decision.explanation, forecast: undefined }, source: 'policy', run: current.run_id, epoch, snapshot: { snapshot_sequence: current.snapshot_sequence, world_version: current.world_version, tick: current.tick } }
+            : { ...decision, source: 'policy', run: current.run_id, epoch, snapshot: current } });
+          await this.record({ kind: 'responsiveness', payload: { metric: 'decision', source: 'policy', duration_ms: decisionDuration, action: action.kind, intentional_wait: action.kind === 'wait' } satisfies ResponsivenessSample });
+        }
+        if (!decision) {
+          await this.record({ kind: 'decision', payload: { source: 'exercise', action, nextMemory: this.memory, run: current.run_id, epoch, explanation: { rationale: 'Validator exercise step' } } });
+          await this.record({ kind: 'responsiveness', payload: { metric: 'decision', source: 'exercise', duration_ms: decisionDuration, action: action.kind, intentional_wait: action.kind === 'wait' } satisfies ResponsivenessSample });
+        }
+        if (action.kind === 'wait') { this.setActivity('waiting', decision?.explanation.rationale ?? 'Waiting for validator gift'); continue; }
         // Persistence is asynchronous. New observations continue replacing facts
         // while it runs; never transmit a decision made against older facts.
-        if (s !== this.state.snapshot || epoch !== this.state.epoch || revision !== this.state.revision || !this.ready) { this.dirty = true; continue; }
-        const pending: Pending = { requestId: randomUUID(), action, tick: s.tick };
-        const bytes = this.commandBytes(s, pending);
-        if (BigInt(bytes.length) > s.rules.max_command_bytes || bytes.length > 16384) throw new Error('Command too large');
-        await this.record({ kind: 'command', direction: 'outbound', requestId: pending.requestId, payload: { ...pending, run: s.run_id, epoch, raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length } });
+        if (current !== this.state.snapshot || epoch !== this.state.epoch || revision !== this.state.revision || !this.ready) { this.dirty = true; continue; }
+        const pending: Pending = { requestId: randomUUID(), action, tick: current.tick };
+        const bytes = this.commandBytes(current, pending);
+        if (BigInt(bytes.length) > current.rules.max_command_bytes || bytes.length > 16384) throw new Error('Command too large');
+        await this.record({ kind: 'command', direction: 'outbound', requestId: pending.requestId, payload: { ...pending, run: current.run_id, epoch, raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length } });
         await new Promise<void>(resolve => setImmediate(resolve));
-        if (s !== this.state.snapshot || epoch !== this.state.epoch || revision !== this.state.revision || !this.ready || this.stopped) {
+        if (current !== this.state.snapshot || epoch !== this.state.epoch || revision !== this.state.revision || !this.ready || this.stopped) {
           await this.record({ kind: 'cancelled', requestId: pending.requestId, payload: { reason: 'New observation before transmission' } });
           this.dirty = true; continue;
         }
         // No await between the final check, pending insertion, and socket.send.
-        if (decision && fingerprint(decide(s, this.state.pending, this.memory, this.config).action) !== fingerprint(action)) throw new Error('Revalidation mismatch');
+        if (json(this.memory) !== memoryBefore) throw new Error('Revalidation mismatch');
         this.state.pending.push(pending);
         if (decision) this.memory = decision.nextMemory;
-        if (this.options.exercise && s.request_results.items.length === 5) this.exerciseCapacity = true;
-        this.transport!.send(bytes);
-        this.record({ kind: 'sent', requestId: pending.requestId, payload: { run: s.run_id, epoch } });
-        // Fill the remaining in-flight slots without waiting for another message.
-        this.dirty = true;
+        if (this.options.exercise && current.request_results.items.length === 5) this.exerciseCapacity = true;
+        this.pendingSince = Date.now();
+        this.sentAt.set(pending.requestId, this.now());
         // A missing result prompts ONE observation request, never fresh IDs or
         // unbounded resubmission. Reconnect recovers recorded results in state.
         const timer = setTimeout(() => {
           this.syncTimers.delete(pending.requestId);
-          // Only a command still lacking any result is uncertain.
-          if (!this.state.pending.some(p => p.requestId === pending.requestId && !p.result)) return;
+          if (!this.sentAt.has(pending.requestId)) return;
           this.record({ kind: 'uncertain', requestId: pending.requestId, payload: { reason: 'No authoritative outcome yet; one sync requested, replacements blocked.' } });
+          this.responseDeadline(pending.requestId);
           this.control('sync');
-        }, 2000);
+        }, this.responseTimeoutMs);
         timer.unref();
         this.syncTimers.set(pending.requestId, timer);
+        this.transport!.send(bytes);
+        this.setActivity('awaiting_response', 'Waiting for the server result');
+        this.record({ kind: 'sent', requestId: pending.requestId, payload: { run: current.run_id, epoch } });
+        // Fill the remaining in-flight slots without waiting for another message.
+        if (BigInt(this.state.pending.length) < inFlight) this.dirty = true;
       }
     } finally { this.cycling = false; }
   }
@@ -272,6 +399,7 @@ export class Engine {
     const s = this.state.snapshot, p = this.state.pending.find(p => p.requestId === requestId);
     if (!s || !p?.result || !this.ready || this.stopped || !this.transport) return false;
     this.transport.send(this.commandBytes(s, p));
+    this.record({ kind: 'retry-sent', direction: 'outbound', requestId, payload: { run: s.run_id, epoch: this.state.epoch, action: p.action } });
     return true;
   }
 }

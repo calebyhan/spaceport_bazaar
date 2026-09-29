@@ -1,7 +1,12 @@
-# Autonomous baseline v1
+# Autonomous worker (baseline v1 by default)
+
+[Documentation index](../README.md)
 
 The worker is a separate Node process; the dashboard never owns the trading
-socket. `worker/policy.ts` contains the deterministic decision function and
+socket. Choose `baseline` or `observe` with `--strategy` or `BAZAAR_STRATEGY`;
+see [strategy selection and offline checks](strategies.md) for configuration,
+JSON fixtures, and the transport/logging extension points. The policy details
+below describe the baseline. `worker/policy.ts` contains the deterministic decision function and
 `worker/domain.ts` contains bundle, commitment, and forecast arithmetic.
 
 The initial production assumption is **zero future production**, including the
@@ -23,17 +28,8 @@ No deployment or remote schema changes are required to run local verification.
 
 ## Run locally
 
-Use Node 22 and run from the repository root:
-
-```sh
-npm ci
-npm run proto:generate
-npm run test:worker
-npm run test:validator
-npm run test:coverage
-npm run check
-npm run build
-```
+Use Node 22. Follow [development setup](../setup/development.md) and the
+[testing guide](../testing.md) for installation and verification commands.
 
 `proto:generate` uses the supplied schema with proto2 required fields and
 unpacked lists. Generated JavaScript and declarations live in `worker/generated`;
@@ -99,7 +95,7 @@ The `market` policy (worker/policy.ts, with the market model in
 worker/market.ts) replaced `baseline-2` after run-37. Version `market-4` adds
 the run-39 fixes and `market-5` the run-40 fixes, described under **Run-39
 changes** and **Run-40 changes** below. The analysis behind each change is in
-[live run learnings](live-run-learnings.md). In run-37 our station
+[live run learnings](../live-run-learnings.md). In run-37 our station
 starved of food while holding over 200 spare components. It never originated
 an offer, and it refused favourable trades once food had doomed the forecast.
 Defaults, all overridable with the matching `BAZAAR_*` variable in
@@ -240,7 +236,9 @@ The fixes:
 - **Per-command sync timers.** Each in-flight command has its own two-second
   timer. It records `uncertain` and syncs only if that command still has no
   result. Previously each send replaced the one shared timer, and it fired
-  even when results had arrived.
+  even when results had arrived. Timers survive a reconnect, so a response
+  missed across a reconnect still counts one response deadline; they are
+  cleared only when the worker stops.
 - **Slimmer wait decisions.** Wait decisions reference their snapshot by
   sequence, world version, and tick, and omit the forecast. The state record
   already holds the full snapshot. Action decisions still carry everything.
@@ -382,7 +380,7 @@ ticks include normal production, zero starting food/low stocks, and specialty
 production dropping to zero after one tick. These are local simulations, not
 evidence of success against arbitrary classmates or a complete reference server.
 
-`worker/tests/strategy.test.ts` covers the market strategies. It checks
+`worker/tests/market.test.ts` covers the market strategies. It checks
 horizon planning, advertising the plan, value-based acceptance (including the
 run-37 tick-46 case), the at-par floor, the pricing ladder (premium, step-down,
 rest, reopening at the cleared price), urgency at par, multi-hop sourcing,
@@ -409,7 +407,7 @@ This also distinguishes sequence resets across process restarts. The
 current snapshot remains the raw authoritative observation; no transaction is
 re-applied during database mirroring.
 
-Closing the gaps against `docs/real-run-logging-note.md`, the journal also
+Closing the gaps against the [real-run logging note](../real-run-logging-note.md), the journal also
 records: one immutable `manifest` entry per run (server/local identifiers,
 protocol/subprotocol/schema versions, app version or Git commit, endpoint host
 and port without credentials, live rules, initial state, policy config); a
@@ -430,12 +428,8 @@ decisions - the logging note's "never block" guidance is not applied there,
 since it would weaken the stronger existing guarantee of never deciding on
 data that is not yet durably logged.
 
-Coverage excludes generated bindings and test fixtures. The measured suite
-covers all domain and policy lines; remaining gaps include the CLI's live socket
-lifecycle and Supabase adapter, which are not exercised by the in-process
-coverage run. The separate validator exercises the CLI and exercise script but
-is not included in that percentage. Local sink-failure tests prove the engine
-stops on persistence failure; they do not prove remote database permissions.
+Coverage scope, quality expectations, and reproducible commands are maintained
+in the [testing guide](../testing.md).
 
 Local verification on 2026-09-21 completed the supplied validator's ten steps
 with final inventory `(28 water, 31 food, 31 components)`. The three six-tick
