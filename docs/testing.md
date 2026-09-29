@@ -15,6 +15,7 @@ Use Node 22 and install the locked dependencies with `npm ci`.
 | `npm run test:worker` | Worker unit tests and deterministic binary-protocol simulations |
 | `npm run test:coverage` | All unit tests with coverage, including dashboard and CLI |
 | `npm run test:validator` | Real Linux validator and worker subprocess on loopback; asserts all ten steps and final inventory |
+| `npm run sim:server` | Local multi-planet simulation server for trading behavior; see [simulator](reference/simulator.md) |
 | `npm run check` | TypeScript and ESLint |
 | `npm run build` | Next.js production compilation |
 | `npm run proto:generate` | Regenerate bindings after a schema change; rerun verification afterward |
@@ -64,9 +65,10 @@ pages move; add each new guide to the documentation index.
 ## Mutation checks and simulation regressions
 
 Run `npm run test:mutations` after `npm test`. It copies the worker into a temporary
-workspace, links installed dependencies, and checks four deliberate bugs: inclusive
+workspace, links installed dependencies, and checks six deliberate bugs: inclusive
 expiry, retaining an already reconciled command, skipping useful incoming trades,
-and tracking a request after its response. Each unchanged named test must pass;
+tracking a request after its response, and two simulator rule bugs (expiring an
+offer one tick late, settling when the proposer can no longer pay). Each unchanged named test must pass;
 each mutated version must fail an assertion. Missing tests, runner crashes,
 compilation errors, and timeouts do not count as detected bugs. Source files in
 your checkout are never changed. This is a focused mutation smoke check, not an

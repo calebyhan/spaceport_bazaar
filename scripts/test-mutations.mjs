@@ -27,6 +27,16 @@ const mutations = [
     before: 'this.sentAt.delete(requestId);', after: 'this.sentAt.get(requestId);',
     test: 'worker/tests/responsiveness.test.ts', title: 'snapshot resolves response once, even when repeated',
   },
+  {
+    name: 'simulator keeps an offer open on its expiry tick', file: 'worker/sim/world.ts',
+    before: 'offer.expires_tick <= this.tick) this.close(offer, OfferStatus.EXPIRED)', after: 'offer.expires_tick < this.tick) this.close(offer, OfferStatus.EXPIRED)',
+    test: 'worker/tests/sim-world.test.ts', title: 'expiry is exclusive: an offer expiring at tick 1 is usable at tick 0 only',
+  },
+  {
+    name: 'simulator settles without checking the proposer can still pay', file: 'worker/sim/world.ts',
+    before: 'if (!affordable(proposer.inventory, offer.give) || !affordable(station.inventory, offer.receive))', after: 'if (!affordable(station.inventory, offer.receive))',
+    test: 'worker/tests/sim-world.test.ts', title: 'no reservation: a failed acceptance moves nothing and leaves the offer open',
+  },
 ];
 const root = fileURLToPath(new URL('../', import.meta.url));
 const workspace = await mkdtemp(join(tmpdir(), 'bazaar-mutations-'));
