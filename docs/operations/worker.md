@@ -85,11 +85,14 @@ remote project as part of this implementation.
 ## Policy and comparisons
 
 `decide(snapshot, pendingCommands, policyMemory, config)` returns one action,
-next memory, and an explanation. It performs no I/O. The engine commits memory
+next memory, and an explanation. The explanation includes an `inbound`
+verdict (accept or pass, with a reason and value) for every open incoming
+offer; see [journal tools](journal-tools.md). It performs no I/O. The engine commits memory
 only when submitting the action. Persisted explanations contain the full input
 snapshot, connection epoch, policy/config version, liabilities, reserve bundle,
-tick-by-tick wait forecast, action and rationale. Results and subsequent states
-are linked through request IDs in the journal and optional database mirror.
+tick-by-tick wait forecast, action and rationale. Each decision record carries the request ID of the command it produced,
+and results and subsequent states are linked through the same ID in the
+journal and optional database mirror.
 
 The `market` policy (worker/policy.ts, with the market model in
 worker/market.ts) replaced `baseline-2` after run-37. Version `market-4` adds

@@ -30,7 +30,9 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
   const commitments = liabilities(s, pending);
   const market = observeMarket(s, config, memory.failed);
   const p = plan(s, stock, market, config);
-  const explanation = { policyVersion: config.version, config, input: { run: s.run_id, sequence: s.snapshot_sequence, version: s.world_version, tick: s.tick }, commitments, reserve: safety, forecast: base, plan: p, market, rationale: '' };
+  // Why each open inbound offer was or was not taken, for per-offer audits.
+  const inbound: Record<string, { verdict: 'accept' | 'pass'; reason: string; value?: number }> = {};
+  const explanation = { policyVersion: config.version, config, input: { run: s.run_id, sequence: s.snapshot_sequence, version: s.world_version, tick: s.tick }, commitments, reserve: safety, forecast: base, plan: p, market, inbound, rationale: '' };
   const wait = (reason: string) => ({ action: { kind: 'wait' } as Action, nextMemory: memory, explanation: { ...explanation, rationale: reason } });
   if (s.phase !== 2 || s.self.failed_once || s.self.health === 0n || s.tick >= s.rules.duration_ticks) return wait('Phase or permanent failure prohibits trading.');
   if (BigInt(pending.length) >= config.maxInFlight) return wait('Every in-flight slot awaits an authoritative result.');
@@ -42,13 +44,14 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
   // Ordered constraints, never a weighted sum: survival (failure tick, minimum
   // health, damage) dominates, then value realized now, action kind, value we
   // only hope to realize, and finally the evidence behind that hope.
+  // Returns why an action was filtered out, or nothing when it is ranked.
   const addCandidate = (action: Command, after: Forecast, realized: number, kind: bigint, evidence: bigint, expected: number, rationale: string) => {
     const urgent = action.kind === 'accept' || action.kind === 'withdraw';
-    if (!capacity(s, pending, urgent)) return;
+    if (!capacity(s, pending, urgent)) return 'no command capacity left this tick';
     const key = fingerprint(action);
-    if (inFlight.has(key)) return;
+    if (inFlight.has(key)) return 'an identical command is already awaiting its result';
     const last = memory.attempted[key];
-    if (last !== undefined && s.tick < last && !lastAccepted(s, action)) return;
+    if (last !== undefined && s.tick < last && !lastAccepted(s, action)) return 'cooling down after an identical attempt';
     candidates.push({ action, rank: [...survival(after), milli(realized), kind, milli(expected), evidence], rationale });
   };
 
@@ -67,15 +70,16 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
   for (const o of s.offers.items) {
     if (o.recipient_id !== s.self_station_id || !active(o.status, o.expires_tick, s.tick)) continue;
     const pay = o.receive, gain = o.give;
-    if (total(gain) < total(pay)) continue;
+    const pass = (reason: string, value?: number) => { inbound[o.offer_id] = { verdict: 'pass', reason, value }; };
+    if (total(gain) < total(pay)) { pass('below par: we would receive fewer units than we give'); continue; }
     const gained = worth(gain, p) - worth(pay, p);
-    if (gained <= EPSILON) continue;
+    if (gained <= EPSILON) { pass('no value gain at current plan values', gained); continue; }
     const check = tradeSafety(s, pending, pay, gain, config);
-    if (!check.safe) continue;
-    if (!canPay(p, stock, pay, gain)) continue;
+    if (!check.safe) { pass(check.belowReserve ? 'unsafe: we are below reserve and it would lower forecast health' : 'unsafe: it would breach the reserve or bring failure earlier', gained); continue; }
+    if (!canPay(p, stock, pay, gain)) { pass('pays with resources the plan cannot spare', gained); continue; }
     const gift = total(pay) === 0n;
-    addCandidate({ kind: 'accept', body: { offer_id: o.offer_id } }, check.after, gained, gift ? Kind.gift : Kind.exchange, 0n, 0,
-      gift ? 'Accept a safe inbound gift.' : `Accept an at-or-above-par exchange worth ${gained.toFixed(2)} to us.`);
+    pass(addCandidate({ kind: 'accept', body: { offer_id: o.offer_id } }, check.after, gained, gift ? Kind.gift : Kind.exchange, 0n, 0,
+      gift ? 'Accept a safe inbound gift.' : `Accept an at-or-above-par exchange worth ${gained.toFixed(2)} to us.`) ?? 'safe and valuable, but ranked below the chosen action', gained);
   }
 
   // Propose to every station with evidence it supplies what we want, paying
@@ -131,6 +135,7 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
     return candidate.rank[i] > waitRank[i];
   });
   if (!best) return wait('Wait: no safe, valuable action within capacity and cooldown limits.');
+  if (best.action.kind === 'accept') inbound[best.action.body.offer_id] = { ...inbound[best.action.body.offer_id], verdict: 'accept', reason: best.rationale };
   const until = (best.action.kind === 'offer' ? best.action.body.expires_tick : s.tick) + config.cooldownTicks;
   return { action: best.action as Action, nextMemory: { ...memory, attempted: { ...memory.attempted, [fingerprint(best.action)]: until } }, explanation: { ...explanation, rationale: best.rationale } };
 }

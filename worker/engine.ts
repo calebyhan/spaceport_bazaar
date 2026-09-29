@@ -397,23 +397,26 @@ export class Engine {
         // Let queued socket I/O run even when the local journal resolves
         // synchronously; a chain of resolved promises alone only drains microtasks.
         await new Promise<void>(resolve => setImmediate(resolve));
+        // The command's ID is chosen now so the decision names the request it
+        // produces; command, result and trace records all carry the same ID.
+        const requestId = action.kind === 'wait' ? undefined : randomUUID();
         // A wait references its snapshot (already journaled as a state record)
         // instead of copying it; actions keep the full input for audit.
         if (decision) {
-          await this.record({ kind: 'decision', payload: action.kind === 'wait'
+          await this.record({ kind: 'decision', requestId, payload: action.kind === 'wait'
             ? { ...decision, explanation: { ...decision.explanation, forecast: undefined }, source: 'policy', run: current.run_id, epoch, snapshot: { snapshot_sequence: current.snapshot_sequence, world_version: current.world_version, tick: current.tick } }
             : { ...decision, source: 'policy', run: current.run_id, epoch, snapshot: current } });
           await this.record({ kind: 'responsiveness', payload: { metric: 'decision', source: 'policy', duration_ms: decisionDuration, action: action.kind, intentional_wait: action.kind === 'wait' } satisfies ResponsivenessSample });
         }
         if (!decision) {
-          await this.record({ kind: 'decision', payload: { source: 'exercise', action, nextMemory: this.memory, run: current.run_id, epoch, explanation: { rationale: 'Validator exercise step' } } });
+          await this.record({ kind: 'decision', requestId, payload: { source: 'exercise', action, nextMemory: this.memory, run: current.run_id, epoch, explanation: { rationale: 'Validator exercise step' } } });
           await this.record({ kind: 'responsiveness', payload: { metric: 'decision', source: 'exercise', duration_ms: decisionDuration, action: action.kind, intentional_wait: action.kind === 'wait' } satisfies ResponsivenessSample });
         }
         if (action.kind === 'wait') { this.setActivity('waiting', decision?.explanation.rationale ?? 'Waiting for validator gift'); continue; }
         // Persistence is asynchronous. New observations continue replacing facts
         // while it runs; never transmit a decision made against older facts.
         if (current !== this.state.snapshot || epoch !== this.state.epoch || revision !== this.state.revision || !this.ready) { this.dirty = true; continue; }
-        const pending: Pending = { requestId: randomUUID(), action, tick: current.tick };
+        const pending: Pending = { requestId: requestId!, action, tick: current.tick };
         const bytes = this.commandBytes(current, pending);
         if (BigInt(bytes.length) > current.rules.max_command_bytes || bytes.length > 16384) throw failure('application', 'COMMAND_TOO_LARGE', 'The strategy produced a command larger than the server allows', 'Inspect the decision record; the command was not sent.');
         await this.record({ kind: 'command', direction: 'outbound', requestId: pending.requestId, payload: { ...pending, run: current.run_id, epoch, raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length } });

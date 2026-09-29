@@ -69,7 +69,7 @@ These rules come from the [handbook](protocol.md), the
 - **Atomic exchange:** the handbook's 6 water for 5 food example, with both
   parties' inventories, trade totals, transaction and versions.
 - **Exclusive expiry:** an offer expiring at tick 1 settles at tick 0 and is
-  `EXPIRED` from tick 1.
+  `EXPIRED` from tick 1; a later accept returns `EXPIRED`.
 - **No reservation:** posting checks affordability but locks nothing. A failed
   acceptance returns `INSUFFICIENT_RESOURCES`, moves nothing and leaves the
   offer open. A competing acceptance can spend the same stock first.
@@ -141,9 +141,10 @@ Treat simulation results as hypotheses. The live server may differ here:
 - **Rejected commands.** Every new request ID stores a result, including
   rejections, and counts toward the per-tick quota. A new request advances
   `world_version` even when rejected.
-- **Result codes.** An accept or withdraw of a closed object returns `NOT_OPEN`.
-  The simulator never returns `EXPIRED`, because each tick expires offers before
-  anything can act on them.
+- **Result codes.** Accepting an expired offer returns `EXPIRED`, as the live
+  server did in run-42, when an accept processed four ticks late was
+  rejected. Accepting any other closed offer, or withdrawing any closed
+  object, returns `NOT_OPEN`.
 - **Run end.** Offers and advertisements may not outlive the run, so they
   all expire by the final tick and none is marked `RUN_ENDED`.
 - **Message checks.** Unknown Protobuf fields and duplicate singular fields

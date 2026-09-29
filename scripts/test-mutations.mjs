@@ -19,7 +19,7 @@ const mutations = [
   },
   {
     name: 'useful incoming trades are skipped', file: 'worker/policy.ts',
-    before: 'if (gained <= EPSILON) continue;', after: 'if (gained > EPSILON) continue;',
+    before: 'if (gained <= EPSILON) { pass(', after: 'if (gained > EPSILON) { pass(',
     test: 'worker/tests/scenario.test.ts', title: 'autonomous binary-protocol simulation: low-stock',
   },
   {

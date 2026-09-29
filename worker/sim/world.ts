@@ -4,7 +4,7 @@
 import { resources, type Advertisement, type AdvertisementBody, type Bundle, type Offer, type OfferBody, type Result, type Rules, type Snapshot, type Transaction } from '../types';
 import { add, affordable, mapBundle, max, min, subtract, total, zero } from '../domain';
 
-export const Code = { OK: 1, REQUEST_ID_CONFLICT: 2, RUN_NOT_RUNNING: 3, RATE_LIMITED: 4, INVALID_ARGUMENT: 5, NOT_FOUND: 6, NOT_OPEN: 8, LIMIT_REACHED: 9, INSUFFICIENT_RESOURCES: 10, STATION_FAILED: 11 } as const;
+export const Code = { OK: 1, REQUEST_ID_CONFLICT: 2, RUN_NOT_RUNNING: 3, RATE_LIMITED: 4, INVALID_ARGUMENT: 5, NOT_FOUND: 6, EXPIRED: 7, NOT_OPEN: 8, LIMIT_REACHED: 9, INSUFFICIENT_RESOURCES: 10, STATION_FAILED: 11 } as const;
 export const Control = { BAD_MESSAGE: 1, REQUEST_CAPACITY_EXCEEDED: 2, UNSUPPORTED_VERSION: 3, RUN_MISMATCH: 4, SESSION_FENCED: 6 } as const;
 export const Phase = { READY: 1, RUNNING: 2, FINISHED: 4 } as const;
 const OfferStatus = { OPEN: 1, ACCEPTED: 2, WITHDRAWN: 3, EXPIRED: 4 } as const;
@@ -133,11 +133,13 @@ export class World {
   }
 
   // An open offer is never past its deadline (each tick expires first), and a
-  // failed station's offers are withdrawn, so NOT_OPEN covers both cases.
+  // failed station's offers are withdrawn. As on the live server (run-42), an
+  // expired offer answers EXPIRED; any other closed offer answers NOT_OPEN.
   private accept(station: Station, offerId: string): Effect {
     const offer = this.offers.get(offerId);
     if (!offer || (offer.recipient_id !== station.station_id && offer.proposer_id !== station.station_id)) return { code: Code.NOT_FOUND };
     if (offer.recipient_id !== station.station_id) return { code: Code.INVALID_ARGUMENT };
+    if (offer.status === OfferStatus.EXPIRED) return { code: Code.EXPIRED };
     if (offer.status !== OfferStatus.OPEN) return { code: Code.NOT_OPEN };
     const proposer = this.stations.get(offer.proposer_id)!;
     if (!affordable(proposer.inventory, offer.give) || !affordable(station.inventory, offer.receive)) return { code: Code.INSUFFICIENT_RESOURCES };

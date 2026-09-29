@@ -64,7 +64,7 @@ test('expiry is exclusive: an offer expiring at tick 1 is usable at tick 0 only'
   expect(run('P02', 'accept', { offer_id: 'offer-1' }).code).toBe(1);
   w.advance();
   expect(view('P02').offers.items[1]).toMatchObject({ offer_id: 'offer-2', status: 4, closed_tick: { value: 1n } });
-  expect(run('P02', 'accept', { offer_id: 'offer-2' }).code).toBe(8);
+  expect(run('P02', 'accept', { offer_id: 'offer-2' }).code).toBe(7);
 });
 
 test('no reservation: a failed acceptance moves nothing and leaves the offer open', () => {

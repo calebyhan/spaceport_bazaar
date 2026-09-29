@@ -12,6 +12,7 @@
 - [Strategy selection and offline checks](operations/strategies.md): configure a policy, check a JSON state/offer, and replace transport or logging adapters.
 - [Worker operations](operations/worker.md): exercise and autonomous modes, configuration, recovery, current policy behavior and limitations.
 - [Connection lifecycle and failure diagnosis](operations/diagnostics.md): lifecycle stages, stale state, failure categories and exit codes.
+- [Journal tools](operations/journal-tools.md): live status, per-offer traces and run reports from a journal.
 - [Testing](testing.md): verification commands, coverage scope, test quality and reports.
 
 ## Reference
