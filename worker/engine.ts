@@ -2,15 +2,16 @@ import { randomUUID } from 'node:crypto';
 import type { Action, Command, Config, Memory, Pending, Snapshot } from './types';
 import { defaultConfig } from './types';
 import { decode, encode, type ServerMessage } from './codec';
-import { json } from './policy';
+import { json } from './serialization';
 import { StrategyExecutor, StrategyTimeout, type Evaluate } from './strategy';
 import { StateStore } from './state';
 import type { RecordEntry, ResponsivenessSample, Sink } from './persistence';
+import { getStrategy, type StrategyName } from './strategies';
 import { exercise } from './exercise';
 export interface Transport { send(bytes: Uint8Array): void; close(): void }
 export interface EngineOptions {
   sink: Sink; config?: Config; exercise?: boolean; previous?: RecordEntry[];
-  strategy?: Evaluate; decisionTimeoutMs?: number; responseTimeoutMs?: number;
+  strategyName?: string; strategy?: Evaluate; decisionTimeoutMs?: number; responseTimeoutMs?: number;
   identity?: (s: Snapshot) => void; done?: () => void; fatal?: () => void;
 }
 function restorePending(payload: unknown): Pending & { run: string } {
@@ -44,7 +45,9 @@ export class Engine {
   private readonly sentAt = new Map<string, number>();
   private readonly missedResponses = new Set<string>();
   private strategyBusy = false;
-  private readonly executor = new StrategyExecutor();
+  private readonly executor: StrategyExecutor;
+  readonly strategyName: StrategyName;
+  private get strategyId() { return this.options.exercise ? 'exercise' : this.strategyName; }
   private queuedAt = 0;
   private activity = 'starting';
   private activityReason = 'Waiting for the first state';
@@ -99,7 +102,12 @@ export class Engine {
       action: 'wait', intentional_wait: true, reason } satisfies ResponsivenessSample });
   }
   readonly config: Config;
-  constructor(private options: EngineOptions) { this.config = options.config ?? defaultConfig; }
+  constructor(private options: EngineOptions) {
+    const selected = getStrategy(options.strategyName);
+    this.strategyName = selected.name;
+    this.executor = new StrategyExecutor(selected.name);
+    this.config = options.config ?? { ...defaultConfig, version: selected.version };
+  }
   connect(transport: Transport) {
     this.transport = transport; this.ready = false; this.readySequence = undefined;
     clearInterval(this.heartbeat);
@@ -127,7 +135,7 @@ export class Engine {
     this.stop(); this.transport?.close(); this.options.fatal?.();
   }
   private record(entry: RecordEntry) {
-    const record = { ...entry, connection: { processId: this.processId, epoch: this.state.epoch } };
+    const record = { ...entry, strategy: this.strategyId, connection: { processId: this.processId, epoch: this.state.epoch } };
     this.persistence = this.persistence.then(() => this.options.sink.append(record));
     // Never send another command after a persistence error. Do not log raw
     // transport/database exceptions: they can contain endpoint credentials.
@@ -159,7 +167,7 @@ export class Engine {
         if (p.run === s.run_id) pending.set(p.requestId, p);
       }
       if (entry.kind === 'cancelled' || entry.kind === 'control-rejected') pending.delete(entry.requestId ?? '');
-      if (entry.kind === 'decision') {
+      if (entry.kind === 'decision' && (entry.strategy ?? 'baseline') === this.strategyId) {
         const decision = entry.payload as { run: string; nextMemory: Memory };
         if (decision.run === s.run_id) this.memory = { attempted: Object.fromEntries(Object.entries(decision.nextMemory.attempted).map(([k, v]) => [k, BigInt(v)])) };
       }

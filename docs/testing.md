@@ -6,6 +6,8 @@ Use Node 22 and install the locked dependencies with `npm ci`.
 
 | Command | Checks |
 | --- | --- |
+| `npm run test:strategies` | Strategy selection, offline scenario validation, CLI and adapter isolation |
+| `npm run strategy:check -- --input examples/strategies/incoming-gift.json` | Check a real policy decision from JSON without a server or app |
 | `npm run test:responsiveness` | Focused timing, no-action, liveness, deadline and worker-thread concurrency regressions |
 | `npm run verify:responsiveness` | Focused suite, full coverage, TypeScript, ESLint, production build and local validator |
 | `npm test` | Full application coverage suite, TypeScript, ESLint |

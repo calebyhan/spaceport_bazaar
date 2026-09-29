@@ -1,21 +1,23 @@
 import { Worker } from 'node:worker_threads';
-import type { decide } from './policy';
-import type { Config, Memory, Pending, Snapshot } from './types';
+import { getStrategy, type StrategyName } from './strategies';
+import type { Decision, StrategyInput } from './strategy-contract';
+export type { StrategyInput } from './strategy-contract';
 
-export interface StrategyInput { snapshot: Snapshot; pending: Pending[]; memory: Memory; config: Config }
-export interface StrategyResult { decision: ReturnType<typeof decide>; startedAt: number; durationMs: number }
+export interface StrategyResult { decision: Decision; startedAt: number; durationMs: number }
 export type Evaluate = (input: StrategyInput, timeoutMs: number, onStarted: (at: number) => void) => Promise<StrategyResult>;
 export class StrategyTimeout extends Error {}
 
 // The engine submits one job at a time. Idle threads do not keep the process
 // alive; disconnect/shutdown releases them. Timeouts also terminate CPU work.
 export class StrategyExecutor {
+  readonly strategyName: StrategyName;
+  constructor(name?: string) { this.strategyName = getStrategy(name).name; }
   private worker?: Worker;
   private cancel?: () => void;
   evaluate: Evaluate = (input, timeoutMs, onStarted) => {
     if (this.cancel) return Promise.reject(new Error('Strategy is already busy'));
     return new Promise((resolve, reject) => {
-      const worker = this.worker ??= new Worker(new URL('./strategy-thread.mjs', import.meta.url));
+      const worker = this.worker ??= new Worker(new URL('./strategy-thread.mjs', import.meta.url), { workerData: { strategy: this.strategyName } });
       worker.ref();
       const deadlineAt = performance.timeOrigin + performance.now() + timeoutMs;
       const finish = (error: Error | null, value?: StrategyResult) => {

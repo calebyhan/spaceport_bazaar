@@ -109,20 +109,23 @@ test('heartbeat identifies a live intentional wait without additional server mes
 
 test('CPU-bound strategy runs off-thread while newer socket updates replace its input', async () => {
   const executor = new StrategyExecutor();
+  // Isolate CPU concurrency from thread/module startup under parallel test load.
+  await executor.evaluate({ snapshot: snapshot(), pending: [], memory: { attempted: {} }, config: defaultConfig }, 10000, () => {});
   let started!: () => void;
   const reached = new Promise<void>(resolve => { started = resolve; });
   const h = harness({ strategy: (input, timeout, onStarted) => executor.evaluate(input, timeout, at => { onStarted(at); started(); }), decisionTimeoutMs: 1000 });
   const s = snapshot(); s.rules.duration_ticks = 10000n; s.rules.max_offer_ttl_ticks = 10000n;
   // Many valid offers require enough forecasting work to hold the worker busy.
   s.offers.items = Array.from({ length: 500 }, (_, i) => offer({ offer_id: `cpu-${i}` }));
-  const running = h.ready(s); await reached;
+  const running = h.ready(s);
+  await Promise.race([reached, running.then(() => { throw new Error('Strategy finished before CPU work began'); })]);
   h.receive({ state: snapshot({ snapshot_sequence: 2n, phase: 3 }) });
   expect(h.engine.state.snapshot?.snapshot_sequence).toBe(2n);
   await running;
   expect(h.samples('event').some(sample => sample.busy === true)).toBe(true);
   expect(h.sent.some(m => m.accept || m.advertise)).toBe(false);
   executor.close();
-});
+}, 15000);
 
 test.each([new StrategyTimeout('expired'), new Error('worker failed')])('strategy failure cannot send; deadline classification is accurate: %s', async error => {
   const h = harness({ strategy: async () => { throw error; } }); await h.ready();

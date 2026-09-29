@@ -30,7 +30,7 @@ beforeEach(() => {
   vi.spyOn(process, 'loadEnvFile').mockImplementation(f.loadEnv);
   vi.spyOn(console, 'log').mockImplementation(() => {}); vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.stubEnv('BAZAAR_ENDPOINT', 'ws://127.0.0.1:3001/ws'); vi.stubEnv('BAZAAR_TOKEN', 'private-token');
-  for (const key of ['BAZAAR_ENV_FILE', 'BAZAAR_CREDENTIAL_FILE', 'BAZAAR_STATION_ID', 'BAZAAR_JOURNAL', 'BAZAAR_RESERVE_TICKS', 'BAZAAR_QUANTITY', 'BAZAAR_GIVE_UNITS', 'BAZAAR_RECEIVE_UNITS', 'BAZAAR_TTL', 'BAZAAR_COOLDOWN_TICKS']) vi.stubEnv(key, undefined);
+  for (const key of ['BAZAAR_STRATEGY', 'BAZAAR_ENV_FILE', 'BAZAAR_CREDENTIAL_FILE', 'BAZAAR_STATION_ID', 'BAZAAR_JOURNAL', 'BAZAAR_RESERVE_TICKS', 'BAZAAR_QUANTITY', 'BAZAAR_GIVE_UNITS', 'BAZAAR_RECEIVE_UNITS', 'BAZAAR_TTL', 'BAZAAR_COOLDOWN_TICKS']) vi.stubEnv(key, undefined);
   process.argv = ['node', 'worker/main.ts']; process.exitCode = 0;
 });
 const originalArgv = process.argv;
@@ -110,4 +110,18 @@ test('an already queued reconnect callback cannot reopen a finished worker', asy
   await start(); f.sockets[0].emit('close');
   const callback = timer.mock.calls.at(-1)![0] as () => void;
   f.options!.done!(); callback(); expect(f.sockets).toHaveLength(1);
+});
+test('strategy setting reaches the engine and CLI overrides the environment', async () => {
+  vi.stubEnv('BAZAAR_STRATEGY', 'observe'); process.argv.push('--strategy=baseline'); await start();
+  expect(f.options?.strategyName).toBe('baseline'); expect(f.options?.config?.version).toBe('baseline-1');
+});
+test('observe can be selected using the environment', async () => {
+  vi.stubEnv('BAZAAR_STRATEGY', 'observe'); await start(); expect(f.options?.strategyName).toBe('observe'); expect(f.options?.config?.version).toBe('observe-1');
+});
+test('strategy listing needs no endpoint, credentials, journal or socket', async () => {
+  vi.stubEnv('BAZAAR_ENDPOINT', ''); vi.stubEnv('BAZAAR_TOKEN', ''); process.argv.push('--list-strategies'); await start();
+  expect(f.sockets).toHaveLength(0); expect(f.options).toBeUndefined(); expect(console.log).toHaveBeenCalledWith(expect.stringContaining('observe'));
+});
+test('invalid strategy selection fails before connecting', async () => {
+  process.argv.push('--strategy', 'not-registered'); await start(); expect(process.exitCode).toBe(1); expect(f.sockets).toHaveLength(0);
 });

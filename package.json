@@ -17,7 +17,9 @@
     "test:coverage": "vitest run --coverage",
     "test:validator": "tsx worker/tests/validator.ts",
     "test:responsiveness": "vitest run worker/tests/responsiveness.test.ts worker/tests/strategy.test.ts tests/responsiveness.test.ts tests/dashboard.test.tsx",
-    "verify:responsiveness": "npm run test:responsiveness && npm test && npm run build && npm run test:validator"
+    "verify:responsiveness": "npm run test:responsiveness && npm test && npm run build && npm run test:validator",
+    "strategy:check": "tsx worker/check-strategy.ts",
+    "test:strategies": "vitest run worker/tests/strategies.test.ts worker/tests/scenario-input.test.ts worker/tests/check-strategy.test.ts worker/tests/main.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

@@ -2,9 +2,9 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, rm
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
-import { json } from './policy';
+import { json } from './serialization';
 import type { Snapshot } from './types';
-export interface RecordEntry { connection?: { processId: string; epoch: number }; kind: string; payload: unknown; direction?: 'internal' | 'inbound' | 'outbound'; requestId?: string }
+export interface RecordEntry { strategy?: string; connection?: { processId: string; epoch: number }; kind: string; payload: unknown; direction?: 'internal' | 'inbound' | 'outbound'; requestId?: string }
 export interface ResponsivenessSample {
   metric: 'event' | 'queue' | 'decision' | 'response' | 'deadline' | 'activity';
   duration_ms?: number;
@@ -67,7 +67,7 @@ export class SupabaseSink implements Sink {
       if (response.error) throw new Error('Snapshot persistence failed');
     }
     if (!this.runId) return;
-    const response = await this.client.from('events').insert({ run_id: this.runId, direction: entry.direction ?? 'internal', kind: entry.kind, request_id: entry.requestId, source_sequence: entry.kind === 'state' ? payload.snapshot_sequence : undefined, payload: { ...payload, _connection: entry.connection } });
+    const response = await this.client.from('events').insert({ run_id: this.runId, direction: entry.direction ?? 'internal', kind: entry.kind, request_id: entry.requestId, source_sequence: entry.kind === 'state' ? payload.snapshot_sequence : undefined, payload: { ...payload, _strategy: entry.strategy, _connection: entry.connection } });
     if (response.error) throw new Error('Event persistence failed');
     if (entry.kind === 'command') {
       const response = await this.client.from('commands').upsert({ run_id: this.runId, request_id: entry.requestId, command_type: payload.action.kind, status: 'prepared', command: payload }, { onConflict: 'run_id,request_id' });

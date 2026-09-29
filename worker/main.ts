@@ -2,10 +2,14 @@ import WebSocket from 'ws';
 import { readFileSync } from 'node:fs';
 import { Engine } from './engine';
 import { acquireLock, Journal, SupabaseSink, type Sink } from './persistence';
+import { workerOptions } from './options';
+import { listStrategies } from './strategies';
 import { defaultConfig } from './types';
 
 async function main() {
   if (process.env.BAZAAR_ENV_FILE) process.loadEnvFile(process.env.BAZAAR_ENV_FILE);
+  const selection = workerOptions(process.argv.slice(2), process.env);
+  if (selection.list) { console.log(JSON.stringify(listStrategies(), null, 2)); return; }
   const endpoint = process.env.BAZAAR_ENDPOINT;
   let token = process.env.BAZAAR_TOKEN;
   if (!token && process.env.BAZAAR_CREDENTIAL_FILE) {
@@ -15,14 +19,14 @@ async function main() {
   if (!endpoint || !token) throw new Error('Missing runtime endpoint or token');
   const url = new URL(endpoint);
   if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid endpoint');
-  const exercise = process.argv.includes('--exercise');
+  const exercise = selection.exercise;
   const journal = new Journal(process.env.BAZAAR_JOURNAL ?? '.local/worker.jsonl');
   let mirror: Sink | undefined;
-  if (process.argv.includes('--supabase')) {
+  if (selection.supabase) {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) throw new Error('Missing persistence configuration');
     mirror = new SupabaseSink(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
   }
-  const config = { ...defaultConfig };
+  const config = { ...defaultConfig, version: selection.strategy.version };
   const settings = { reserveTicks: 'BAZAAR_RESERVE_TICKS', quantity: 'BAZAAR_QUANTITY', giveUnits: 'BAZAAR_GIVE_UNITS', receiveUnits: 'BAZAAR_RECEIVE_UNITS', ttl: 'BAZAAR_TTL', cooldownTicks: 'BAZAAR_COOLDOWN_TICKS' } as const;
   for (const [key, variable] of Object.entries(settings)) {
     const value = process.env[variable];
@@ -41,7 +45,7 @@ async function main() {
     console.log(success ? 'Worker completed.' : 'Worker stopped; inspect the local journal before recovery.');
     process.exitCode = success ? 0 : 1;
   };
-  const engine = new Engine({ config, exercise, previous: journal.previous,
+  const engine = new Engine({ config, exercise, strategyName: selection.strategy.name, previous: journal.previous,
     sink: { append: async entry => { await journal.append(entry); await mirror?.append(entry); } },
     identity: s => { unlock = acquireLock(s.run_id, s.self_station_id); },
     done: () => finish(true), fatal: () => { void engine.idle().then(() => finish(false)).catch(() => finish(false)); },

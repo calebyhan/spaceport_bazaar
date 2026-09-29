@@ -17,11 +17,11 @@ test('sink waits for identity, stores exact integers and connection identity, an
   const { sink, requests } = setup();
   await sink.append({ kind: 'ready', payload: {} }); expect(requests).toHaveLength(0);
   const s = snapshot({ world_version: 9007199254740993n });
-  await sink.append({ kind: 'state', payload: s, direction: 'inbound', connection: { processId: 'process', epoch: 2 } });
+  await sink.append({ kind: 'state', strategy: 'observe', payload: s, direction: 'inbound', connection: { processId: 'process', epoch: 2 } });
   expect(requests.map(r => r.table)).toEqual(['runs', 'current_snapshots', 'events']);
   expect(requests[0].body.status).toBe('running');
   expect(requests[1].body.world_version).toBe('9007199254740993');
-  expect(requests[2].body).toMatchObject({ direction: 'inbound', source_sequence: '1', payload: { _connection: { processId: 'process', epoch: 2 } } });
+  expect(requests[2].body).toMatchObject({ direction: 'inbound', source_sequence: '1', payload: { _strategy: 'observe', _connection: { processId: 'process', epoch: 2 } } });
   await sink.append({ kind: 'command', requestId: 'req', payload: { action: { kind: 'accept' } } });
   expect(requests.at(-1)?.body).toMatchObject({ status: 'prepared', command_type: 'accept', request_id: 'req' });
   for (const kind of ['sent', 'uncertain', 'cancelled', 'control-rejected']) {
