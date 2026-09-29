@@ -16,6 +16,7 @@
 
 - [Protocol and gameplay handbook](reference/protocol.md): canonical gameplay and client-design reference; live `State.rules` supplies run-specific values.
 - [Trading strategy design](reference/strategy.md): broader strategy rationale and design proposals. For implemented behavior, use worker operations.
+- [Responsiveness assessment](reference/responsiveness.md): findings and evidence for measure responsiveness.
 - [Supplied validator guide](../artifacts/bazaar-protobuf-starter-linux/README.md): authoritative local exercise instructions.
 - [Protobuf schema](../artifacts/bazaar-protobuf-starter-linux/bazaar.proto): authoritative wire definitions.
 - [Environment template](../.env.example) and [database migration](../supabase/migrations/20260916000000_initial_dashboard.sql).

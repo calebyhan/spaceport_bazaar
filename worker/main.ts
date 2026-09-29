@@ -60,8 +60,8 @@ async function main() {
       if (!closed && !engine.stopped) reconnect = setTimeout(connect, Math.min(10000, 500 * 2 ** Math.min(attempts++, 5)));
     });
   };
-  process.once('SIGINT', () => { engine.stopped = true; void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
-  process.once('SIGTERM', () => { engine.stopped = true; void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
+  process.once('SIGINT', () => { engine.stop(); void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
+  process.once('SIGTERM', () => { engine.stop(); void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
   // Acquire before opening a socket: a second connection can fence the first
   // at the server before its initial snapshot reveals the run identity.
   unlockHost = acquireLock('host-worker', 'single-owner');

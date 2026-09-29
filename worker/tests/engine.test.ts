@@ -76,6 +76,8 @@ test('exact retries only recover recorded results and preserve request identity'
   h.receive({ result: result({ request_id: p.requestId }) });
   assert.equal(h.e.retryRecorded(p.requestId), true);
   assert.deepEqual(commands(h.sent)[0], commands(h.sent)[1]);
+  await h.e.idle();
+  assert.ok(h.records.some(r => r.kind === 'retry-sent' && r.requestId === p.requestId && r.direction === 'outbound'));
 });
 test('persistence failure prevents sending and leaves a fatal stop', async () => {
   const h = harness(async entry => { if (entry.kind === 'command') throw new Error('disk full'); });

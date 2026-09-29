@@ -6,6 +6,8 @@ Use Node 22 and install the locked dependencies with `npm ci`.
 
 | Command | Checks |
 | --- | --- |
+| `npm run test:responsiveness` | Focused timing, no-action, liveness, deadline and worker-thread concurrency regressions |
+| `npm run verify:responsiveness` | Focused suite, full coverage, TypeScript, ESLint, production build and local validator |
 | `npm test` | Full application coverage suite, TypeScript, ESLint |
 | `npm run test:worker` | Worker unit tests and deterministic binary-protocol simulations |
 | `npm run test:coverage` | All unit tests with coverage, including dashboard and CLI |
@@ -22,7 +24,9 @@ bindings and test code are excluded. CSS, SQL migrations, shell scripts,
 dependencies, and supplied validator binaries are outside this TypeScript
 coverage metric. Every measured file must reach 100% statements, branches,
 functions, and lines; `npm test` fails if any threshold regresses. No coverage
-ignore directives are used. The real validator remains a separate integration check.
+ignore directives are used. The JavaScript strategy-thread bootstrap is exercised by real worker-thread tests;
+its policy implementation is covered by direct policy tests. The real validator
+remains a separate integration check.
 
 Reports are generated in ignored `coverage/`: open `coverage/index.html` for
 annotated source, or read `coverage-summary.json` and `coverage-final.json` for

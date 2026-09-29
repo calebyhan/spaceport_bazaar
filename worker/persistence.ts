@@ -5,6 +5,23 @@ import { createClient } from '@supabase/supabase-js';
 import { json } from './policy';
 import type { Snapshot } from './types';
 export interface RecordEntry { connection?: { processId: string; epoch: number }; kind: string; payload: unknown; direction?: 'internal' | 'inbound' | 'outbound'; requestId?: string }
+export interface ResponsivenessSample {
+  metric: 'event' | 'queue' | 'decision' | 'response' | 'deadline' | 'activity';
+  duration_ms?: number;
+  request_id?: string;
+  action?: string;
+  intentional_wait?: boolean;
+  missed_deadline?: boolean;
+  busy?: boolean;
+  source?: 'policy' | 'engine' | 'exercise';
+  reason?: string;
+  deadline_kind?: 'decision' | 'response';
+  observed_at?: number;
+  activity?: string;
+  since?: number;
+  deadline_ms?: number;
+  snapshot_sequence?: string;
+}
 export interface Sink { append(entry: RecordEntry): Promise<void>; }
 export function acquireLock(run: string, station: string): () => void {
   // Host-wide key, independent of checkout, endpoint aliases, and journal path.

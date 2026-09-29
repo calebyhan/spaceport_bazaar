@@ -64,3 +64,25 @@ test('a proposal that preserves the selling reserve but cannot improve an emerge
   s.offers.items = [offer({ proposer_id: 'ours', give: bundle(1n,0n,0n), receive: bundle(0n,1n,0n) })];
   expect(decide(s, [], memory, defaultConfig).action.kind).toBe('withdraw');
 });
+test('advertising stops when an existing signal is correct, and stale signals are withdrawn', () => {
+  const s = snapshot();
+  const d = decide(s, [], memory, defaultConfig);
+  if (d.action.kind !== 'advertise') throw new Error('Expected advertisement');
+  s.advertisements.items = [{ ...d.action.body, advertisement_id: 'own', station_id: 'ours', status: 1 }];
+  expect(decide(s, [], memory, defaultConfig).action.kind).toBe('wait');
+  s.advertisements.items[0].seeking.items = [];
+  expect(decide(s, [], memory, defaultConfig).action.kind).toBe('advertise');
+  s.self.inventory = bundle(2n,2n,2n);
+  expect(decide(s, [], memory, defaultConfig).action).toEqual({ kind: 'withdraw', body: { object_id: 'own' } });
+  s.advertisements.items = [];
+  expect(decide(s, [], memory, defaultConfig).action.kind).toBe('wait');
+});
+test('supplier advertisements must be live, from another station, and sell the needed resource', () => {
+  const s = snapshot();
+  s.advertisements.items = [
+    { advertisement_id: 'self', station_id: 'ours', status: 1, selling: { items: [2] }, seeking: { items: [1] }, expires_tick: 6n },
+    { advertisement_id: 'expired', station_id: 'peer', status: 1, selling: { items: [2] }, seeking: { items: [1] }, expires_tick: 0n },
+    { advertisement_id: 'wrong', station_id: 'peer', status: 1, selling: { items: [3] }, seeking: { items: [1] }, expires_tick: 6n },
+  ];
+  expect(decide(s, [], memory, defaultConfig).action.kind).toBe('advertise');
+});

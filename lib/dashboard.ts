@@ -1,4 +1,5 @@
 import "server-only";
+import { EVENT_WINDOW, summarizeResponsiveness, type Responsiveness } from "./responsiveness";
 
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -7,6 +8,7 @@ export type DashboardEvent = {
   direction: "inbound" | "outbound" | "internal";
   kind: string;
   created_at: string;
+  payload?: Record<string, unknown>;
 };
 
 export type DashboardData = {
@@ -25,6 +27,7 @@ export type DashboardData = {
     updatedAt: string | null;
   } | null;
   events: DashboardEvent[];
+  responsiveness: Responsiveness;
 };
 
 type RunRow = {
@@ -43,7 +46,7 @@ type SnapshotRow = {
 };
 
 function emptyDashboard(configuration: DashboardData["configuration"], message?: string): DashboardData {
-  return { configuration, message, run: null, snapshot: null, events: [] };
+  return { configuration, message, run: null, snapshot: null, events: [], responsiveness: summarizeResponsiveness([]) };
 }
 
 export async function loadDashboard(): Promise<DashboardData> {
@@ -68,7 +71,7 @@ export async function loadDashboard(): Promise<DashboardData> {
 
   const run = (runs?.[0] ?? null) as RunRow | null;
   if (!run) {
-    return { configuration: "ready", run: null, snapshot: null, events: [] };
+    return { configuration: "ready", run: null, snapshot: null, events: [], responsiveness: summarizeResponsiveness([]) };
   }
 
   const [snapshotResponse, eventsResponse] = await Promise.all([
@@ -79,10 +82,10 @@ export async function loadDashboard(): Promise<DashboardData> {
       .maybeSingle(),
     supabase
       .from("events")
-      .select("id, direction, kind, created_at")
+      .select("id, direction, kind, created_at, payload")
       .eq("run_id", run.id)
       .order("id", { ascending: false })
-      .limit(8),
+      .limit(EVENT_WINDOW),
   ]);
 
   if (snapshotResponse.error || eventsResponse.error) {
@@ -92,6 +95,7 @@ export async function loadDashboard(): Promise<DashboardData> {
   }
 
   const snapshot = snapshotResponse.data as SnapshotRow | null;
+  const recordedEvents = (eventsResponse.data ?? []) as DashboardEvent[];
   return {
     configuration: "ready",
     run: {
@@ -108,6 +112,7 @@ export async function loadDashboard(): Promise<DashboardData> {
           updatedAt: snapshot.updated_at,
         }
       : null,
-    events: (eventsResponse.data ?? []) as DashboardEvent[],
+    events: recordedEvents.filter(event => event.kind !== "responsiveness").slice(0, 8),
+    responsiveness: summarizeResponsiveness(recordedEvents),
   };
 }

@@ -1,3 +1,4 @@
+import { summarizeResponsiveness } from '../lib/responsiveness';
 import { expect, test, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 vi.mock('../lib/supabase', () => ({ getSupabaseAdmin: vi.fn() }));
@@ -12,6 +13,6 @@ test.each([false, true])('nullable query responses and errors without messages a
   } };
   vi.mocked(getSupabaseAdmin).mockReturnValue(client as unknown as NonNullable<ReturnType<typeof getSupabaseAdmin>>);
   const data = await loadDashboard();
-  if (fail) expect(data).toEqual({ configuration: 'error', message: 'Database unavailable: Unknown database error', run: null, snapshot: null, events: [] });
+  if (fail) expect(data).toEqual({ configuration: 'error', message: 'Database unavailable: Unknown database error', run: null, snapshot: null, events: [], responsiveness: summarizeResponsiveness([]) });
   else { expect(data.configuration).toBe('ready'); expect(data.events).toEqual([]); expect(data.snapshot).toBeNull(); }
 });

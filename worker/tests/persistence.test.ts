@@ -30,7 +30,7 @@ test('durable journal restores uncertain commands after process restart', async 
   first.receive(epoch, encodeServer({ state: s }));
   first.receive(epoch, encodeServer({ readiness: { protocol_version: '2.0', run_id: s.run_id, ready: true, snapshot_sequence: 1n } }));
   await first.idle(); const request = first.state.pending[0].requestId;
-  first.disconnected(epoch); journal.close();
+  first.disconnected(epoch); await first.idle(); journal.close();
   assert.ok(readFileSync(path, 'utf8').includes(request));
   const reopened = new Journal(path); let submitted = 0;
   const second = new Engine({ sink: reopened, previous: reopened.previous });
@@ -38,7 +38,7 @@ test('durable journal restores uncertain commands after process restart', async 
   second.receive(epoch2, encodeServer({ state: s }));
   second.receive(epoch2, encodeServer({ readiness: { protocol_version: '2.0', run_id: s.run_id, ready: true, snapshot_sequence: 1n } }));
   await second.idle(); assert.equal(submitted, 0); assert.equal(second.state.pending[0].requestId, request);
-  second.disconnected(epoch2); reopened.close();
+  second.disconnected(epoch2); await second.idle(); reopened.close();
 });
 test('torn journal fails closed instead of losing pending tracking', () => {
   const path = join(temporaryDirectory('bazaar-torn-'), 'events.jsonl');

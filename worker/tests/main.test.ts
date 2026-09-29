@@ -12,6 +12,7 @@ vi.mock('../engine', () => ({ Engine: class {
   constructor(options: EngineOptions) { f.options = options; }
   get stopped() { return f.stopped; } set stopped(value: boolean) { f.stopped = value; }
   connect(transport: Transport) { f.transport = transport; return 1; }
+  stop() { f.stopped = true; }
   idle = f.idle; fail = f.fail; receive = f.receive; disconnected = f.disconnected;
 } }));
 vi.mock('ws', () => ({ default: class extends EventEmitter {
