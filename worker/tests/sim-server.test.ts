@@ -168,20 +168,23 @@ test('the tick clock advances every station to the finish; start is idempotent',
   await p1.closed;
 });
 
-test('our real client plays a whole balanced run against the simulator', async () => {
-  const { world: w, players, tokens: simTokens } = createSimulation({ ...defaultEconomy, planets: 3, durationTicks: 12n, startingStock: 8n }, 40);
-  server = await startSimServer({ world: w, tokens: simTokens, tickMs: 40, autoStart: true });
+test('our real client plays a whole balanced run against the simulator and exits at the finish', async () => {
+  // Real time: ticks must leave room for strategy threads to start under a loaded test run.
+  const { world: w, players, tokens: simTokens } = createSimulation({ ...defaultEconomy, planets: 3, durationTicks: 12n, startingStock: 8n }, 150);
+  server = await startSimServer({ world: w, tokens: simTokens, tickMs: 150, autoStart: true });
   const kinds: string[] = [], fatal: string[] = [];
+  const finished: Promise<void>[] = [];
   const engines = players.map(p => {
-    const engine = new Engine({ strategyName: 'baseline', sink: { append: async entry => { kinds.push(entry.kind); } }, fatal: () => fatal.push(p.station_id) });
+    let done!: () => void;
+    finished.push(new Promise<void>(resolve => { done = resolve; }));
+    const engine = new Engine({ strategyName: 'baseline', sink: { append: async entry => { kinds.push(entry.kind); } }, done, fatal: () => fatal.push(p.station_id) });
     const socket = new WebSocket(server!.url, SUBPROTOCOL, { headers: { Authorization: `Bearer ${p.token}` } });
     const epoch = engine.connect({ send: bytes => socket.send(bytes), close: () => socket.close() });
     socket.on('message', (data, binary) => engine.receive(epoch, data as Buffer, binary));
     return engine;
   });
-  await server.finished;
-  await new Promise(resolve => setTimeout(resolve, 100));
-  await Promise.all(engines.map(e => e.idle()));
+  // Every client recognises the FINISHED phase and completes on its own.
+  await Promise.all(finished);
   const report = w.report();
   expect(fatal).toEqual([]);
   expect(kinds).not.toContain('protocol_error');
@@ -189,8 +192,38 @@ test('our real client plays a whole balanced run against the simulator', async (
   expect(report.transactions).toBeGreaterThan(0);
   // Each client's final view agrees with the server's authoritative ledger.
   engines.forEach((e, i) => {
-    expect(e.state.snapshot?.phase).toBe(4);
-    expect(e.state.snapshot?.self.inventory).toEqual(report.stations[i].final_inventory);
-    e.stop();
+    expect(e.state.last?.phase).toBe(4);
+    expect(e.lifecycle.state).toBe('finished');
+    expect(e.state.last?.self.inventory).toEqual(report.stations[i].final_inventory);
   });
 }, 20000);
+
+test('fault switches: HTTP rejection, wrong subprotocol, garbage and silence', async () => {
+  server = await startSimServer({ world: world(), tokens, tickMs: 20, faults: { httpStatus: 503 } });
+  expect(await refused(server.url, { Authorization: 'Bearer token-1' }, [SUBPROTOCOL])).toBe(503);
+  await server.close();
+
+  server = await startSimServer({ world: world(), tokens, tickMs: 20, faults: { subprotocol: 'bazaar.json.v1' } });
+  const wrong = new WebSocket(server.url, SUBPROTOCOL, { headers: { Authorization: 'Bearer token-1' } });
+  expect(await new Promise(resolve => wrong.once('error', e => resolve(e.message)))).toBe('Server sent an invalid subprotocol');
+  await server.close();
+
+  server = await startSimServer({ world: world(), tokens, tickMs: 20, faults: { garbage: true } });
+  const garbage = new WebSocket(server.url, SUBPROTOCOL, { headers: { Authorization: 'Bearer token-1' } });
+  const frame = await new Promise<Buffer>(resolve => garbage.once('message', data => resolve(data as Buffer)));
+  expect([...frame]).toEqual([0xff, 0xff, 0xff]);
+  expect(() => decode(frame)).toThrow();
+  await server.close();
+
+  const quiet = world(10n);
+  server = await startSimServer({ world: quiet, tokens, tickMs: 20, faults: { silentAfterTick: 1n } });
+  const p1 = await connect(server.url, 'token-1');
+  expect((await p1.next()).state?.tick).toBe(0n);
+  server.start();
+  expect((await p1.next()).state?.tick).toBe(0n);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  p1.send({ sync: p1.header() });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  expect(quiet.tick).toBeGreaterThan(1n);
+  expect(p1.inbox).toEqual([]);
+});

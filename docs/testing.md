@@ -15,6 +15,7 @@ Use Node 22 and install the locked dependencies with `npm ci`.
 | `npm run test:worker` | Worker unit tests and deterministic binary-protocol simulations |
 | `npm run test:coverage` | All unit tests with coverage, including dashboard and CLI |
 | `npm run test:validator` | Real Linux validator and worker subprocess on loopback; asserts all ten steps and final inventory |
+| `npm run test:diagnostics` | Real worker process against 13 failures; checks each diagnosis category, exit code and lifecycle order; see [diagnostics](operations/diagnostics.md) |
 | `npm run sim:server` | Local multi-planet simulation server for trading behavior; see [simulator](reference/simulator.md) |
 | `npm run check` | TypeScript and ESLint |
 | `npm run build` | Next.js production compilation |

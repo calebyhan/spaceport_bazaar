@@ -10,17 +10,25 @@ import { Control, type CommandKind, type World } from './world';
 export const SUBPROTOCOL = 'bazaar.protobuf.v2';
 const requestIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
 
+// Deliberate faults for demonstrating client diagnostics; never on by default.
+export interface Faults {
+  httpStatus?: number;        // reject every upgrade with this HTTP status
+  subprotocol?: string;       // select this subprotocol instead of ours
+  garbage?: boolean;          // send undecodable bytes instead of the first snapshot
+  silentAfterTick?: bigint;   // stop sending anything once the run reaches this tick
+}
 export interface SimServerOptions {
   world: World; tokens: Record<string, string>; tickMs: number;
   host?: string; port?: number;
   // Start once every station has declared readiness; otherwise call start().
   autoStart?: boolean;
+  faults?: Faults;
 }
 export interface SimServer { url: string; start(): void; finished: Promise<void>; close(): Promise<void> }
 interface Session { socket: WebSocket; station: string; sequence: bigint; ready: boolean }
 
 export async function startSimServer(options: SimServerOptions): Promise<SimServer> {
-  const { world, tokens } = options;
+  const { world, tokens } = options, faults = options.faults ?? {};
   const sessions = new Map<string, Session>();
   const readyStations = new Set<string>();
   const bearer = (header: string | undefined) => tokens[header?.match(/^Bearer (.+)$/)?.[1] ?? ''];
@@ -31,15 +39,18 @@ export async function startSimServer(options: SimServerOptions): Promise<SimServ
     host: options.host ?? '127.0.0.1', port: options.port ?? 0, path: '/ws', maxPayload: Number(world.rules.max_command_bytes),
     // Match the validator: bad credentials are HTTP 401, a missing subprotocol HTTP 400.
     verifyClient: ({ req }, done) => {
+      if (faults.httpStatus) return done(false, faults.httpStatus);
       if (!bearer(req.headers.authorization)) return done(false, 401);
       const offered = (req.headers['sec-websocket-protocol'] ?? '').split(',').map(p => p.trim());
       return offered.includes(SUBPROTOCOL) ? done(true) : done(false, 400);
     },
-    handleProtocols: () => SUBPROTOCOL,
+    handleProtocols: () => faults.subprotocol ?? SUBPROTOCOL,
   });
   await new Promise<void>(resolve => wss.once('listening', resolve));
 
-  const send = (session: Session, message: unknown) => session.socket.send(encodeServer(message), { binary: true });
+  const send = (session: Session, message: unknown) => {
+    if (faults.silentAfterTick === undefined || world.tick < faults.silentAfterTick) session.socket.send(encodeServer(message), { binary: true });
+  };
   const publish = (station: string) => {
     const session = sessions.get(station);
     if (session) send(session, { state: world.view(station, ++session.sequence) });
@@ -96,7 +107,8 @@ export async function startSimServer(options: SimServerOptions): Promise<SimServ
     if (previous) { previous.socket.removeAllListeners('message'); reject(previous, Control.SESSION_FENCED, true); }
     socket.on('message', (data: Buffer, binary) => handle(session, data, binary));
     socket.on('close', () => { if (sessions.get(station) === session) sessions.delete(station); });
-    publish(station);
+    if (faults.garbage) socket.send(Buffer.from([0xff, 0xff, 0xff]), { binary: true });
+    else publish(station);
   });
 
   const { port } = wss.address() as AddressInfo;

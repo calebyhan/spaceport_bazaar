@@ -330,9 +330,13 @@ decides again while in-flight slots remain. A queued
 command never gets a speculative balance update.
 
 Readiness is repeated per connection and must match the acknowledged sequence.
-Only RUNNING permits new trading. READY, PAUSED, FINISHED, ABORTED and permanent
-failure stop new actions. Reconnect uses bounded exponential delay; authentication,
-protocol mismatch, malformed frames and server fencing fail closed. `ws` answers
+Only RUNNING permits new trading. READY, PAUSED and permanent failure stop new
+actions. FINISHED or ABORTED ends the process: the worker writes its run summary
+and exits 0. Reconnect uses bounded exponential delay; authentication,
+protocol mismatch, malformed frames and server fencing fail closed. Each
+stage change and failure is printed and journaled. See
+[connection lifecycle and failure diagnosis](diagnostics.md) for the stages,
+stale-state handling, failure categories and exit codes. `ws` answers
 server pings, and the client sends its own every 30 seconds; application messages must be binary Protobuf.
 
 A command with no result after two seconds causes one `sync`, timed per
@@ -415,12 +419,17 @@ and port without credentials, live rules, initial state, policy config); a
 entries (base64, alongside the existing decoded payload); a `message-error`
 entry with the raw bytes for any frame that fails to decode or validate,
 before failing closed; WebSocket-level `ws-open`/`ws-close`/`ws-ping`/
-`ws-pong`/`ws-error`/`ws-auth-failure`/`ws-reconnect-scheduled` entries (never
-including headers or credential text); derived `market-event` entries per
+`ws-pong`/`ws-error`/`ws-handshake-rejected`/`ws-reconnect-scheduled` entries
+(never including headers or credential text; errors, rejections and retries carry
+their diagnosis category and code); `lifecycle` entries for each connection stage
+change, a `failure` entry with the diagnosis of any final failure, and
+`stale-reconnect` when a silent connection is replaced (see
+[diagnostics](diagnostics.md)); derived `market-event` entries per
 observed state (advertisement/offer lifecycle, command rejections, resource
 risk-threshold crossings) and one `tick-summary` entry per elapsed tick,
 computed in `worker/analysis.ts` from consecutive snapshots and never a
-substitute for the raw records; and one final `run-summary` entry on shutdown
+substitute for the raw records; and one final `run-summary` entry on shutdown,
+taken from the latest snapshot of any connection so a reconnect cannot drop it
 (final state, failure/collective-success outcome, cumulative counters,
 unresolved offers/advertisements, final policy memory). The persistence-then-
 decide sequencing intentionally still runs synchronously with respect to

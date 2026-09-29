@@ -7,6 +7,8 @@ import { acquireLock, Journal, SupabaseSink, type Sink } from './persistence';
 import { workerOptions } from './options';
 import { listStrategies } from './strategies';
 import { defaultConfig } from './types';
+import { diagnose, exitCodes, failure, formatDiagnosis, handshakeRejected, socketError, type Diagnosis } from './diagnostics';
+import { formatLifecycle } from './lifecycle';
 
 const SUBPROTOCOL = 'bazaar.protobuf.v2';
 const PROCESS_START_MONO = process.hrtime.bigint();
@@ -20,27 +22,54 @@ function schemaChecksum(): string | undefined {
   try { return createHash('sha256').update(readFileSync('artifacts/bazaar-protobuf-starter-linux/bazaar.proto')).digest('hex'); } catch { return undefined; }
 }
 
+const configuration = (code: string, message: string, hint: string) => failure('configuration', code, message, hint);
+// Never echo the file's contents: a JSON parse error message quotes them.
+function credentialToken(path: string, station: string): string {
+  let players: unknown;
+  try { players = JSON.parse(readFileSync(path, 'utf8')).players; } catch {
+    throw configuration('CREDENTIAL_FILE_UNREADABLE', 'BAZAAR_CREDENTIAL_FILE could not be read as JSON', 'Check the path; the validator and npm run sim:server write this file.');
+  }
+  const token = Array.isArray(players) ? players.find((p: { station_id?: string }) => p?.station_id === station)?.token : undefined;
+  if (typeof token !== 'string') throw configuration('UNKNOWN_STATION', `The credential file has no token for station ${station}`, 'Set BAZAAR_STATION_ID to a station listed in the credential file.');
+  return token;
+}
+function lock(run: string, station: string) {
+  try { return acquireLock(run, station); } catch {
+    throw failure('application', 'LOCK_HELD', 'Another worker on this host holds the worker lock', 'Stop the other worker. If it crashed, confirm the PID in /tmp/spaceport-bazaar-*.lock/owner.json is dead, then remove only that lock directory.');
+  }
+}
+
 async function main() {
-  if (process.env.BAZAAR_ENV_FILE) process.loadEnvFile(process.env.BAZAAR_ENV_FILE);
-  const selection = workerOptions(process.argv.slice(2), process.env);
+  if (process.env.BAZAAR_ENV_FILE) {
+    try { process.loadEnvFile(process.env.BAZAAR_ENV_FILE); } catch {
+      throw configuration('ENV_FILE_UNREADABLE', 'BAZAAR_ENV_FILE could not be read', 'Check the path points to a private dotenv file such as .env.worker.local.');
+    }
+  }
+  let selection: ReturnType<typeof workerOptions>;
+  try { selection = workerOptions(process.argv.slice(2), process.env); } catch (error) {
+    // Option and strategy errors name only flags and registered strategies.
+    throw configuration('INVALID_OPTIONS', (error as Error).message, 'Run npm run worker -- --list-strategies; flags are --strategy, --exercise and --supabase.');
+  }
   if (selection.list) { console.log(JSON.stringify(listStrategies(), null, 2)); return; }
   const endpoint = process.env.BAZAAR_ENDPOINT;
-  let token = process.env.BAZAAR_TOKEN;
-  if (!token && process.env.BAZAAR_CREDENTIAL_FILE) {
-    const credentials = JSON.parse(readFileSync(process.env.BAZAAR_CREDENTIAL_FILE, 'utf8'));
-    token = credentials.players.find((p: { station_id: string }) => p.station_id === (process.env.BAZAAR_STATION_ID ?? 'P01'))?.token;
-  }
-  if (!endpoint || !token) throw new Error('Missing runtime endpoint or token');
-  const url = new URL(endpoint);
-  if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid endpoint');
+  const token = process.env.BAZAAR_TOKEN || (process.env.BAZAAR_CREDENTIAL_FILE ? credentialToken(process.env.BAZAAR_CREDENTIAL_FILE, process.env.BAZAAR_STATION_ID ?? 'P01') : undefined);
+  if (!endpoint) throw configuration('MISSING_ENDPOINT', 'BAZAAR_ENDPOINT is not set', 'Set it to the server address, for example ws://127.0.0.1:3001/ws, in the environment or BAZAAR_ENV_FILE.');
+  if (!token) throw configuration('MISSING_TOKEN', 'No access token: neither BAZAAR_TOKEN nor BAZAAR_CREDENTIAL_FILE is set', 'Set one of them in a private environment file, never on the command line.');
+  const url = URL.parse(endpoint);
+  if (!url || !['ws:', 'wss:'].includes(url.protocol)) throw configuration('INVALID_ENDPOINT', 'BAZAAR_ENDPOINT must be a ws:// or wss:// URL', 'Use the full endpoint, for example ws://127.0.0.1:3001/ws.');
+  if (url.username || url.password) throw configuration('INVALID_ENDPOINT', 'BAZAAR_ENDPOINT must not contain credentials', 'Remove the credentials from the URL and put the token in BAZAAR_TOKEN.');
   const exercise = selection.exercise;
   // Replaced by BAZAAR_JOURNAL_DIR (one file per run instead of one growing
   // file forever); fail loudly rather than silently ignoring a stale setting.
-  if (process.env.BAZAAR_JOURNAL) throw new Error('BAZAAR_JOURNAL was replaced by BAZAAR_JOURNAL_DIR');
-  const journal = new Journal(process.env.BAZAAR_JOURNAL_DIR ?? '.local/journal');
+  if (process.env.BAZAAR_JOURNAL) throw configuration('RETIRED_SETTING', 'BAZAAR_JOURNAL was replaced by BAZAAR_JOURNAL_DIR', 'Set BAZAAR_JOURNAL_DIR to a directory; each run gets its own file there.');
+  let journal: Journal;
+  try { journal = new Journal(process.env.BAZAAR_JOURNAL_DIR ?? '.local/journal'); } catch {
+    throw failure('application', 'JOURNAL_UNREADABLE', 'The journal directory could not be opened, or its newest file has a torn or corrupt line',
+      'Check permissions for BAZAAR_JOURNAL_DIR and inspect the last line of its newest file; never delete it to bypass recovery.');
+  }
   let mirror: Sink | undefined;
   if (selection.supabase) {
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) throw new Error('Missing persistence configuration');
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) throw configuration('MISSING_MIRROR_CONFIG', '--supabase needs SUPABASE_URL and SUPABASE_SECRET_KEY', 'Add both to the private worker environment file, or run without --supabase.');
     mirror = new SupabaseSink(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
   }
   const config = { ...defaultConfig, version: selection.strategy.version };
@@ -53,17 +82,18 @@ async function main() {
   for (const [key, variable] of Object.entries(settings)) {
     const value = process.env[variable];
     if (value) {
-      if (!/^[1-9][0-9]*$/.test(value) || BigInt(value) > 10000n) throw new Error('Invalid policy configuration');
+      if (!/^[1-9][0-9]*$/.test(value) || BigInt(value) > 10000n) throw configuration('INVALID_POLICY_SETTING', `${variable} must be an integer from 1 to 10000`, 'Fix or remove the setting; see .env.example for defaults.');
       config[key as keyof typeof settings] = BigInt(value);
     }
   }
   let unlock: (() => void) | undefined, socket: WebSocket | undefined, reconnect: NodeJS.Timeout | undefined;
   let closed = false, attempts = 0, connectedAt: string | undefined;
   let unlockHost: (() => void) | undefined;
-  const finish = async (success: boolean) => {
+  const finish = async (success: boolean, diagnosis?: Diagnosis) => {
     if (closed) return;
     closed = true; clearTimeout(reconnect); socket?.close();
-    const s = engine.state.snapshot;
+    // The latest snapshot from any connection: a reconnect clears the current one.
+    const s = engine.state.last;
     if (s) {
       try {
         const outcome = s.outcome.null ? undefined : s.outcome.value;
@@ -85,8 +115,9 @@ async function main() {
       } catch { /* Best-effort final record; already-failed persistence must not block shutdown. */ }
     }
     unlock?.(); unlockHost?.(); journal.close();
+    if (diagnosis) console.error(formatDiagnosis(diagnosis));
     console.log(success ? 'Worker completed.' : 'Worker stopped; inspect the local journal before recovery.');
-    process.exitCode = success ? 0 : 1;
+    process.exitCode = diagnosis ? exitCodes[diagnosis.category] : success ? 0 : 1;
   };
   const { packageVersion, gitCommit } = appVersion();
   const checksum = schemaChecksum();
@@ -96,7 +127,7 @@ async function main() {
       resolve: (runId, stationId) => journal.resolve(runId, stationId),
     },
     identity: s => {
-      unlock = acquireLock(s.run_id, s.self_station_id);
+      unlock = lock(s.run_id, s.self_station_id);
       engine.record({ kind: 'manifest', payload: {
         server_run_id: s.run_id, station_id: s.self_station_id,
         protocol_version: s.protocol_version, subprotocol: SUBPROTOCOL,
@@ -108,19 +139,32 @@ async function main() {
         strategy: exercise ? 'exercise' : selection.strategy.name, config, exercise, llm_enabled: false,
       } });
     },
-    done: () => finish(true), fatal: () => { void engine.idle().then(() => finish(false)).catch(() => finish(false)); },
+    done: () => finish(true),
+    fatal: diagnosis => { void engine.idle().then(() => finish(false, diagnosis)).catch(() => finish(false, diagnosis)); },
+    lifecycle: change => console.log(formatLifecycle(change)),
   });
   const connect = () => {
     if (closed) return;
     const ws = new WebSocket(endpoint, SUBPROTOCOL, { headers: { Authorization: `Bearer ${token}` }, handshakeTimeout: 10000, maxPayload: 16 * 1024 * 1024, followRedirects: false });
     socket = ws;
     let keepalive: NodeJS.Timeout | undefined;
-    const epoch = engine.connect({ send: bytes => { if (ws.readyState !== WebSocket.OPEN) throw new Error('Socket not open'); ws.send(bytes, { binary: true }, error => { if (error) ws.terminate(); }); }, close: () => ws.close() });
+    // Why this connection ended, when known; the first cause wins.
+    let cause: Diagnosis | undefined;
+    const epoch = engine.connect({
+      send: bytes => { if (ws.readyState !== WebSocket.OPEN) throw new Error('Socket not open'); ws.send(bytes, { binary: true }, error => { if (error) ws.terminate(); }); },
+      // A dead peer never completes the close handshake; do not wait 30 s for it.
+      close: () => { ws.close(); setTimeout(() => ws.terminate(), 2000).unref(); },
+    });
     ws.on('open', () => {
       connectedAt = new Date().toISOString();
       engine.record({ kind: 'ws-open', payload: { subprotocol: ws.protocol } });
-      if (ws.protocol !== SUBPROTOCOL) { engine.record({ kind: 'ws-subprotocol-mismatch', payload: { got: ws.protocol, expected: SUBPROTOCOL } }); engine.fail(); return; }
+      if (ws.protocol !== SUBPROTOCOL) {
+        engine.record({ kind: 'ws-subprotocol-mismatch', payload: { got: ws.protocol, expected: SUBPROTOCOL } });
+        engine.fail({ category: 'protocol', code: 'SUBPROTOCOL_MISMATCH', message: `The server selected subprotocol "${ws.protocol}" instead of ${SUBPROTOCOL}`, hint: 'Check the endpoint is a Bazaar server started with the protobuf codec.' });
+        return;
+      }
       attempts = 0;
+      engine.opened(epoch);
       // Keep an idle socket alive: runs 37 and 40 dropped with code 1006 about
       // every two minutes while waiting in the lobby, when no frames flow.
       keepalive = setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.ping(); }, 30000);
@@ -129,11 +173,22 @@ async function main() {
     ws.on('ping', () => engine.record({ kind: 'ws-ping', payload: {} }));
     ws.on('pong', () => engine.record({ kind: 'ws-pong', payload: {} }));
     ws.on('message', (data, binary) => engine.receive(epoch, Buffer.isBuffer(data) ? data : Buffer.concat(data as Buffer[]), binary));
-    // No raw error objects: they can contain endpoint/credential text.
-    ws.on('error', () => engine.record({ kind: 'ws-error', payload: {} }));
+    // Record only the classified error code, never the raw error object:
+    // its message can contain endpoint or credential text.
+    ws.on('error', error => {
+      const diagnosis = socketError(error as NodeJS.ErrnoException);
+      cause ??= diagnosis;
+      engine.record({ kind: 'ws-error', payload: { category: diagnosis.category, code: diagnosis.code } });
+      // Only network failures can clear up by themselves; retrying anything else hides it.
+      if (diagnosis.category !== 'network') engine.fail(diagnosis);
+    });
     ws.on('unexpected-response', (_request, response) => {
-      engine.record({ kind: 'ws-auth-failure', payload: { statusCode: response.statusCode } });
-      response.resume(); engine.fail();
+      const diagnosis = handshakeRejected(response.statusCode!);
+      cause = diagnosis;
+      engine.record({ kind: 'ws-handshake-rejected', payload: { statusCode: response.statusCode, category: diagnosis.category, code: diagnosis.code } });
+      response.resume();
+      // A failing server may recover, so retry; any other rejection will not.
+      if (diagnosis.category === 'network') ws.terminate(); else engine.fail(diagnosis);
     });
     ws.on('close', (code, reasonBuffer) => {
       clearInterval(keepalive);
@@ -141,16 +196,32 @@ async function main() {
       engine.disconnected(epoch);
       if (!closed && !engine.stopped) {
         const delay = Math.min(10000, 500 * 2 ** Math.min(attempts++, 5));
-        engine.record({ kind: 'ws-reconnect-scheduled', payload: { delayMs: delay, attempt: attempts } });
+        const why = cause ?? { category: 'network', code: `CLOSE_${code}`, message: 'The server closed the connection', hint: 'The worker reconnects automatically.' };
+        engine.record({ kind: 'ws-reconnect-scheduled', payload: { delayMs: delay, attempt: attempts, category: why.category, code: why.code } });
+        console.error(`${formatDiagnosis(why)} Reconnecting in ${delay} ms (attempt ${attempts}).`);
         reconnect = setTimeout(connect, delay);
       }
     });
   };
-  process.once('SIGINT', () => { engine.stop(); void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
-  process.once('SIGTERM', () => { engine.stop(); void engine.idle().then(() => finish(true)).catch(() => finish(false)); });
+  // A repeated signal (a second Ctrl+C) must not fall through to Node's
+  // default exit: that would skip the lock release. Only SIGKILL forces it.
+  let stopping = false;
+  const shutdown = (signal: NodeJS.Signals) => {
+    process.once(signal, () => shutdown(signal));
+    if (stopping) { console.error('Shutdown in progress; waiting for durable records and lock release.'); return; }
+    stopping = true;
+    engine.stop(); void engine.idle().then(() => finish(true)).catch(() => finish(false));
+  };
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
   // Acquire before opening a socket: a second connection can fence the first
   // at the server before its initial snapshot reveals the run identity.
-  unlockHost = acquireLock('host-worker', 'single-owner');
+  unlockHost = lock('host-worker', 'single-owner');
   connect();
 }
-void main().catch(() => { console.error('Worker startup failed. Check configuration, journal integrity, and local lock ownership.'); process.exitCode = 1; });
+void main().catch(error => {
+  const diagnosis = diagnose(error);
+  console.error(formatDiagnosis(diagnosis));
+  console.error('Worker did not start.');
+  process.exitCode = exitCodes[diagnosis.category];
+});

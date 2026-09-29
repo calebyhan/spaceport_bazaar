@@ -18,7 +18,7 @@ of the documented rules, not the classroom server.
 ## Run it
 
 ```sh
-npm run sim:server -- --planets 3 --duration 40 --tick-ms 200 --port 3100
+npm run sim:server -- --planets 3 --duration 40 --tick-ms 200 --port 3100 --start-after-ms 5000
 ```
 
 The server writes `.local/sim/credentials.json` in the validator's format,
@@ -30,9 +30,14 @@ BAZAAR_CREDENTIAL_FILE=.local/sim/credentials.json \
 BAZAAR_STATION_ID=P02 BAZAAR_JOURNAL_DIR=.local/sim/journal npm run worker
 ```
 
-The run starts once every planet has sent `ready: true`. Pass
-`--start-after-ms N` to start after N ms anyway; planets without a client then
-trade nothing and usually fail. When the run finishes, the server prints each
+The run starts once every planet has sent `ready: true`, or after
+`--start-after-ms` if given. With one worker and three planets, as above, the
+run starts after 5 seconds. The worker prints each lifecycle stage and exits
+by itself when the run finishes. Planets without a client never advertise or
+trade, so ours has nobody to trade with. Each planet's 30 starting units of
+the resources it does not produce last 30 ticks, so in this 40-tick example
+all three planets fail at tick 40. Connect a worker for every planet to see
+real trading. When the run finishes, the server prints each
 planet's outcome and writes `.local/sim/report.json`. The report contains
 server-side facts that no client sees, such as every planet's final inventory,
 health lost and first failure tick.
@@ -49,6 +54,7 @@ health lost and first failure tick.
 | `--host`, `--port` | 127.0.0.1, 3100 | Listen address; port 0 picks a free port |
 | `--credentials`, `--report` | `.local/sim/…` | Output files; credentials are written with mode 0600 |
 | `--start-after-ms` | none | Start without waiting for every planet |
+| `--fault` | none | Deliberate fault for diagnostics: `http-STATUS`, `subprotocol`, `garbage`, or `silent-after=TICK` |
 
 ## What it implements
 

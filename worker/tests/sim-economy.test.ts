@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { balancedStations, blockPattern, defaultEconomy, Rng } from '../sim/economy';
-import { createSimulation, simOptions } from '../sim/setup';
+import { createSimulation, parseFault, simOptions } from '../sim/setup';
 
 const sum = (values: bigint[]) => values.reduce((a, b) => a + b, 0n);
 const byResource = (planets: number) => {
@@ -54,14 +54,14 @@ test('shuffle returns a permutation without changing its input', () => {
 
 test('CLI options default to a nine-planet, 120-tick classroom-shaped run', () => {
   expect(simOptions([])).toEqual({ economy: defaultEconomy, tickMs: 500, host: '127.0.0.1', port: 3100,
-    credentials: '.local/sim/credentials.json', report: '.local/sim/report.json', startAfterMs: undefined });
+    credentials: '.local/sim/credentials.json', report: '.local/sim/report.json', startAfterMs: undefined, faults: {} });
 });
 
 test('CLI options override every setting', () => {
   expect(simOptions(['--planets', '6', '--seed', '0', '--duration', '30', '--surplus', '0', '--block', '6', '--stock', '0',
-    '--tick-ms', '50', '--host', '0.0.0.0', '--port', '0', '--credentials', 'c.json', '--report', 'r.json', '--start-after-ms', '0'])).toEqual({
+    '--tick-ms', '50', '--host', '0.0.0.0', '--port', '0', '--credentials', 'c.json', '--report', 'r.json', '--start-after-ms', '0', '--fault', 'garbage'])).toEqual({
     economy: { planets: 6, seed: 0, durationTicks: 30n, surplusPct: 0n, blockTicks: 6, startingStock: 0n, upkeep: 1n },
-    tickMs: 50, host: '0.0.0.0', port: 0, credentials: 'c.json', report: 'r.json', startAfterMs: 0 });
+    tickMs: 50, host: '0.0.0.0', port: 0, credentials: 'c.json', report: 'r.json', startAfterMs: 0, faults: { garbage: true } });
 });
 
 test.each([['--planets', '2'], ['--stock', '1.5'], ['--tick-ms', '5'], ['--duration', 'ten'], ['--port', '1000001']])('invalid option %s %s is rejected', (flag, value) => {
@@ -77,4 +77,14 @@ test('a simulation gets a unique run, one private token per planet, and matching
   expect(first.players.every(p => /^[0-9a-f]{48}$/.test(p.token))).toBe(true);
   expect(Object.values(first.tokens)).toEqual(['P01', 'P02', 'P03']);
   expect(first.world.rules).toMatchObject({ duration_ticks: 10n, tick_duration_ms: 50n, max_offer_ttl_ticks: 12n });
+});
+
+test.each([
+  ['http-401', { httpStatus: 401 }], ['http-503', { httpStatus: 503 }], ['subprotocol', { subprotocol: 'bazaar.json.v1' }],
+  ['garbage', { garbage: true }], ['silent-after=5', { silentAfterTick: 5n }],
+])('--fault %s', (value, faults) => {
+  expect(parseFault(value)).toEqual(faults);
+});
+test.each(['http-99', 'http-600', 'silent-after=x', 'crash'])('--fault %s is rejected', value => {
+  expect(() => parseFault(value)).toThrow('--fault must be');
 });

@@ -7,7 +7,8 @@ import { createSimulation, simOptions } from './setup';
 async function main() {
   const options = simOptions(process.argv.slice(2));
   const { world, players, tokens } = createSimulation(options.economy, options.tickMs);
-  const server = await startSimServer({ world, tokens, tickMs: options.tickMs, host: options.host, port: options.port, autoStart: true });
+  const server = await startSimServer({ world, tokens, tickMs: options.tickMs, host: options.host, port: options.port, autoStart: true, faults: options.faults });
+  if (Object.keys(options.faults).length) console.log(`Deliberate fault enabled: ${json(options.faults)}`);
   // Same shape as the validator's credential file, so BAZAAR_CREDENTIAL_FILE works unchanged.
   mkdirSync(dirname(options.credentials), { recursive: true });
   writeFileSync(options.credentials, json({ run_id: world.runId, endpoint: server.url, players }), { mode: 0o600 });

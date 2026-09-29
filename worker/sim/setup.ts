@@ -2,10 +2,22 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { balancedStations, defaultEconomy, type EconomyOptions } from './economy';
 import { classroomRules, World } from './world';
+import type { Faults } from './server';
 
 export interface SimulationOptions {
   economy: EconomyOptions; tickMs: number; host: string; port: number;
-  credentials: string; report: string; startAfterMs?: number;
+  credentials: string; report: string; startAfterMs?: number; faults: Faults;
+}
+
+// --fault http-401 | http-503 | subprotocol | garbage | silent-after=TICK
+export function parseFault(value: string | undefined): Faults {
+  if (value === undefined) return {};
+  const http = value.match(/^http-([1-5][0-9][0-9])$/), silent = value.match(/^silent-after=([0-9]+)$/);
+  if (http) return { httpStatus: Number(http[1]) };
+  if (silent) return { silentAfterTick: BigInt(silent[1]) };
+  if (value === 'subprotocol') return { subprotocol: 'bazaar.json.v1' };
+  if (value === 'garbage') return { garbage: true };
+  throw new Error('--fault must be http-STATUS, subprotocol, garbage or silent-after=TICK');
 }
 
 export function simOptions(args: string[]): SimulationOptions {
@@ -13,6 +25,7 @@ export function simOptions(args: string[]): SimulationOptions {
     planets: { type: 'string' }, seed: { type: 'string' }, duration: { type: 'string' }, surplus: { type: 'string' },
     block: { type: 'string' }, stock: { type: 'string' }, 'tick-ms': { type: 'string' }, host: { type: 'string' },
     port: { type: 'string' }, credentials: { type: 'string' }, report: { type: 'string' }, 'start-after-ms': { type: 'string' },
+    fault: { type: 'string' },
   } });
   const integer = (name: keyof typeof values, fallback: number, least = 1) => {
     const value = values[name];
@@ -29,6 +42,7 @@ export function simOptions(args: string[]): SimulationOptions {
     tickMs: integer('tick-ms', 500, 10), host: values.host ?? '127.0.0.1', port: integer('port', 3100, 0),
     credentials: values.credentials ?? '.local/sim/credentials.json', report: values.report ?? '.local/sim/report.json',
     startAfterMs: values['start-after-ms'] === undefined ? undefined : integer('start-after-ms', 0, 0),
+    faults: parseFault(values.fault),
   };
 }
 

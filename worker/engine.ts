@@ -10,12 +10,17 @@ import { getStrategy, type StrategyName } from './strategies';
 import { exercise } from './exercise';
 import { deriveMarketEvents, summarizeTick } from './analysis';
 import { max } from './domain';
+import { controlFailure, diagnose, failure, type Diagnosis } from './diagnostics';
+import { Lifecycle, phaseNames, staleAfterMs, steadyState, type LifecycleChange } from './lifecycle';
 export interface Transport { send(bytes: Uint8Array): void; close(): void }
 export interface EngineOptions {
   sink: Sink; config?: Config; exercise?: boolean; previous?: RecordEntry[];
   strategyName?: string; strategy?: Evaluate; decisionTimeoutMs?: number; responseTimeoutMs?: number;
-  identity?: (s: Snapshot) => void; done?: () => void; fatal?: () => void;
+  identity?: (s: Snapshot) => void; done?: () => void; fatal?: (diagnosis: Diagnosis) => void;
+  lifecycle?: (change: LifecycleChange) => void;
 }
+const persistenceFailure: Diagnosis = { category: 'application', code: 'PERSISTENCE_FAILED', message: 'A journal or database write failed, so trading stopped before sending anything unrecorded',
+  hint: 'Check disk space and permissions for BAZAAR_JOURNAL_DIR (or the Supabase mirror); keep the journal, which holds unresolved commands for recovery.' };
 function restorePending(payload: unknown): Pending & { run: string } {
   const p = payload as Pending & { run: string };
   const action = structuredClone(p.action);
@@ -62,6 +67,13 @@ export class Engine {
   private reconcileSince = Date.now();
   private heartbeat?: NodeJS.Timeout;
   private heartbeatPending = false;
+  private lastStateAt = 0;
+  private staleReconnect = false;
+  readonly lifecycle = new Lifecycle(change => { this.record({ kind: 'lifecycle', payload: change }); this.options.lifecycle?.(change); });
+  private detail() {
+    const s = this.state.snapshot;
+    return { epoch: this.state.epoch, tick: s?.tick, phase: s?.phase, snapshot_age_ms: s ? Date.now() - this.lastStateAt : undefined };
+  }
   private get decisionTimeoutMs() { return this.options.decisionTimeoutMs ?? 2000; }
   private get responseTimeoutMs() { return this.options.responseTimeoutMs ?? 2000; }
   private now() { return performance.timeOrigin + performance.now(); }
@@ -118,28 +130,63 @@ export class Engine {
   connect(transport: Transport) {
     this.transport = transport; this.ready = false; this.readySequence = undefined;
     clearInterval(this.heartbeat);
-    this.heartbeat = setInterval(() => this.reportActivity(), 1000);
+    this.heartbeat = setInterval(() => { this.reportActivity(); this.checkStale(); }, 1000);
     this.heartbeat.unref();
     const epoch = this.state.newConnection();
+    this.staleReconnect = false;
+    this.lifecycle.set('connecting', 'Opening the WebSocket connection', this.detail());
     this.setActivity('starting', 'Waiting for connection state');
     return epoch;
+  }
+  // Called by the transport once the socket is open and its subprotocol checked.
+  opened(epoch: number) {
+    if (epoch === this.state.epoch) this.lifecycle.set('connected', 'WebSocket open with bazaar.protobuf.v2; waiting for the first snapshot', this.detail());
+  }
+  // A RUNNING server pushes a snapshot at least every tick. Silence past the
+  // window asks for one sync; silence for twice the window reconnects.
+  private checkStale() {
+    const s = this.state.snapshot;
+    if (!s || !this.ready || s.phase !== 2 || this.options.exercise || this.stopped) return;
+    const age = Date.now() - this.lastStateAt, window = staleAfterMs(s);
+    if (age < window) return;
+    if (this.lifecycle.state !== 'stale') {
+      this.lifecycle.set('stale', `No snapshot for ${age} ms while RUNNING (limit ${window} ms); requesting a sync`, this.detail());
+      this.control('sync');
+    } else if (age >= 2 * window && !this.staleReconnect) {
+      this.staleReconnect = true;
+      this.record({ kind: 'stale-reconnect', payload: { snapshot_age_ms: age, window_ms: window } });
+      this.transport?.close();
+    }
   }
   disconnected(epoch: number) {
     if (epoch !== this.state.epoch) return;
     this.ready = false; this.transport = undefined;
     clearInterval(this.heartbeat);
     if (!this.strategyBusy) this.executor.close();
-    if (!this.stopped) this.setActivity('disconnected', 'Waiting to reconnect; unresolved commands remain blocked');
+    if (!this.stopped) {
+      this.lifecycle.set('disconnected', 'Connection closed; reconnecting, unresolved commands stay blocked', this.detail());
+      this.setActivity('disconnected', 'Waiting to reconnect; unresolved commands remain blocked');
+    }
   }
   stop() {
     this.stopped = true;
     this.clearSyncTimers(); clearInterval(this.heartbeat);
     this.executor.close();
+    this.lifecycle.set('stopped', 'Worker stopped', this.detail());
     this.setActivity('stopped', 'Client stopped');
   }
-  fail() {
+  fail(diagnosis = diagnose(undefined)) {
     if (this.stopped) return;
-    this.stop(); this.transport?.close(); this.options.fatal?.();
+    this.lifecycle.set('failed', `${diagnosis.category} failure ${diagnosis.code}: ${diagnosis.message}`, this.detail());
+    this.record({ kind: 'failure', payload: diagnosis });
+    this.stop(); this.transport?.close(); this.options.fatal?.(diagnosis);
+  }
+  // The run is over: stop deciding, then report completion once every record
+  // is durable. A persistence failure here must not report success.
+  private complete(reason: string) {
+    this.lifecycle.set('finished', reason, this.detail());
+    this.stop();
+    void this.persistence.then(() => { this.transport?.close(); this.options.done?.(); }).catch(() => this.options.fatal?.(persistenceFailure));
   }
   private clearSyncTimers() {
     for (const timer of this.syncTimers.values()) clearTimeout(timer);
@@ -154,7 +201,7 @@ export class Engine {
     this.persistence = this.persistence.then(() => this.options.sink.append(record));
     // Never send another command after a persistence error. Do not log raw
     // transport/database exceptions: they can contain endpoint credentials.
-    void this.persistence.catch(() => this.fail());
+    void this.persistence.catch(() => this.fail(persistenceFailure));
     return this.persistence;
   }
   private control(kind: 'ready' | 'sync') {
@@ -169,20 +216,24 @@ export class Engine {
   }
   receive(epoch: number, bytes: Uint8Array, binary = true) {
     if (this.stopped || epoch !== this.state.epoch) return;
+    const receivedAt = this.now();
+    let msg: ServerMessage;
     try {
       if (!binary) throw new Error('Text frames are unsupported');
-      const receivedAt = this.now();
-      this.message(epoch, decode(bytes), bytes, receivedAt);
+      msg = decode(bytes);
     } catch (error) {
-      // Preserve the raw evidence for a frame that failed to decode or
-      // validate, before failing closed. Never log the raw transport error
-      // object itself: it can carry endpoint/credential text.
+      // Preserve the raw evidence for a frame that failed to decode, before
+      // failing closed. Decoder messages describe bytes, never credentials.
       this.record({ kind: 'message-error', direction: 'inbound', payload: {
         raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length,
         error: (error as Error).message,
       } });
-      this.fail();
+      return this.fail({ category: 'protocol', code: binary ? 'UNDECODABLE_FRAME' : 'TEXT_FRAME',
+        message: binary ? 'The server sent a frame that is not a valid bazaar.v2.ServerMessage' : 'The server sent a text frame; the protocol uses binary Protobuf only',
+        hint: 'Check the endpoint is a Bazaar server using the protobuf codec and that bazaar.proto matches; the raw bytes are in the journal.' });
     }
+    // Decoded frames already have a raw record; failures here are diagnosed.
+    try { this.message(epoch, msg, bytes, receivedAt); } catch (error) { this.fail(diagnose(error)); }
   }
   private restore(s: Snapshot) {
     const pending = new Map<string, Pending>();
@@ -208,9 +259,9 @@ export class Engine {
   private message(epoch: number, msg: ServerMessage, bytes: Uint8Array, receivedAt: number) {
     const value = msg.state ?? msg.result ?? msg.readiness ?? msg.protocol_error!;
     const wasBusy = this.strategyBusy;
-    if (value.protocol_version !== '2.0') throw new Error('Protocol mismatch');
+    if (value.protocol_version !== '2.0') throw failure('protocol', 'UNSUPPORTED_VERSION', 'The server uses a protocol version other than 2.0', 'Check the server version and regenerate bindings if bazaar.proto changed.');
     const run = typeof value.run_id === 'string' ? value.run_id : value.run_id.value;
-    if (this.identity && run && run !== this.identity) throw new Error('Run changed');
+    if (this.identity && run && run !== this.identity) throw failure('protocol', 'RUN_CHANGED', 'The server switched to a different run during this process', 'Restart the worker for the new run; the previous run keeps its own journal file.');
     // One record per physical frame, independently reconstructable without
     // cross-referencing the derived state/result/readiness records below.
     this.record({ kind: 'raw', direction: 'inbound', requestId: msg.result?.request_id ?? msg.protocol_error?.request_id.value, payload: {
@@ -220,11 +271,12 @@ export class Engine {
     if (msg.state) {
       const s = msg.state;
       // Bound CPU work rather than blocking the receive loop on exotic rules.
-      if (s.rules.duration_ticks - s.tick > 10000n || s.rules.max_offer_ttl_ticks > 10000n) throw new Error('Run exceeds supported forecast size');
-      if (this.station && this.station !== s.self_station_id) throw new Error('Station changed');
+      if (s.rules.duration_ticks - s.tick > 10000n || s.rules.max_offer_ttl_ticks > 10000n) throw failure('application', 'RUN_TOO_LONG', 'The run exceeds the 10,000-tick forecast bound', 'Raise the bound in worker/engine.ts only after checking forecast cost.');
+      if (this.station && this.station !== s.self_station_id) throw failure('authentication', 'STATION_CHANGED', 'The token now identifies a different station', 'One worker serves one station; check BAZAAR_TOKEN or BAZAAR_STATION_ID.');
       if (!this.identity) { this.options.sink.resolve?.(s.run_id, s.self_station_id); this.options.identity?.(s); this.identity = s.run_id; this.station = s.self_station_id; this.restore(s); }
       const previousSnapshot = this.state.snapshot;
       if (!this.state.observe(epoch, s)) return;
+      this.lastStateAt = Date.now();
       this.record({ kind: 'state', direction: 'inbound', payload: s });
       // Derived views (docs/real-run-logging-note.md's "Market-observation
       // timeline" and "Tick summary"), never a substitute for the raw records
@@ -241,35 +293,40 @@ export class Engine {
         this.record({ kind: 'result', direction: 'inbound', requestId: r.request_id, payload: r });
         this.response(r.request_id, receivedAt);
       }
+      if (s.phase === 4 || s.phase === 5) return this.complete(`Run ${phaseNames[s.phase]}; no further trading is possible`);
       if (this.readySequence === undefined) this.control('ready');
+      const [stage, why] = steadyState(this.ready, s);
+      this.lifecycle.set(stage, why, this.detail());
       if (this.options.exercise && this.exerciseSync) {
-        if (s.self.inventory.water !== 28n || s.self.inventory.food !== 31n || s.self.inventory.components !== 31n || s.transactions.items.length !== 2 || s.request_results.items.length !== 5) throw new Error('Incorrect validator final state');
-        this.stop();
-        void this.persistence.then(() => { this.transport?.close(); this.options.done?.(); }).catch(() => this.options.fatal?.());
-        return;
+        if (s.self.inventory.water !== 28n || s.self.inventory.food !== 31n || s.self.inventory.components !== 31n || s.transactions.items.length !== 2 || s.request_results.items.length !== 5) throw failure('application', 'EXERCISE_MISMATCH', 'The validator final state differs from the expected exercise result', 'Compare validation-report.json with the journal state records.');
+        return this.complete('Validator exercise completed');
       }
     } else if (msg.readiness) {
       this.record({ kind: 'readiness', direction: 'inbound', payload: msg.readiness });
       this.ready = msg.readiness.ready && msg.readiness.snapshot_sequence === this.readySequence;
+      if (this.state.snapshot) {
+        const [stage, why] = steadyState(this.ready, this.state.snapshot);
+        this.lifecycle.set(stage, why, this.detail());
+      }
     } else if (msg.result) {
       this.state.result(msg.result);
       this.loggedResults.add(msg.result.request_id);
       this.record({ kind: 'result', direction: 'inbound', requestId: msg.result.request_id, payload: msg.result });
       this.response(msg.result.request_id, receivedAt);
-      if (msg.result.code === 2) throw new Error('Request ID conflict');
+      if (msg.result.code === 2) throw failure('protocol', 'REQUEST_ID_CONFLICT', 'The server reports a request ID conflict', 'A request ID was reused with different content; inspect the command records for that ID.');
     } else {
       // decode guarantees exactly one recognized envelope.
       const error = msg.protocol_error!;
       this.record({ kind: 'protocol_error', direction: 'inbound', requestId: error.request_id.value, payload: error });
       this.response(error.request_id.value ?? '', receivedAt);
-      if (error.close_session) { this.fail(); return; }
+      if (error.close_session) { this.fail(controlFailure(error.code)); return; }
       if (error.code === 2) {
         this.capacityExhausted = true;
         this.state.pending = this.state.pending.filter(p => p.requestId !== error.request_id.value);
         this.record({ kind: 'control-rejected', requestId: error.request_id.value, payload: error });
         if (this.options.exercise && this.exerciseCapacity) this.exerciseSync = true;
         this.control('sync');
-      } else { this.fail(); return; }
+      } else { this.fail(controlFailure(error.code)); return; }
     }
     this.record({ kind: 'responsiveness', payload: { metric: 'event', duration_ms: this.now() - receivedAt, busy: Boolean(msg.state) && wasBusy } satisfies ResponsivenessSample });
     this.schedule(receivedAt);
@@ -277,7 +334,7 @@ export class Engine {
   schedule(receivedAt = this.now()) {
     this.queuedAt = receivedAt;
     this.dirty = true;
-    if (!this.cycling) void this.cycle().catch(() => this.fail());
+    if (!this.cycling) void this.cycle().catch(error => this.fail(diagnose(error)));
   }
   async idle() { while (this.cycling) await new Promise(resolve => setImmediate(resolve)); await this.persistence; }
   private async cycle() {
@@ -328,7 +385,10 @@ export class Engine {
             decision = measured.decision;
             decisionDuration = measured.durationMs;
           } catch (error) {
-            if (error instanceof StrategyTimeout) this.record({ kind: 'responsiveness', payload: { metric: 'deadline', deadline_kind: 'decision', missed_deadline: true } satisfies ResponsivenessSample });
+            if (error instanceof StrategyTimeout) {
+              this.record({ kind: 'responsiveness', payload: { metric: 'deadline', deadline_kind: 'decision', missed_deadline: true } satisfies ResponsivenessSample });
+              throw failure('application', 'STRATEGY_TIMEOUT', 'The strategy did not decide within its deadline', `Profile the ${this.strategyName} strategy; the journal records the missed decision deadline.`);
+            }
             throw error;
           } finally { this.strategyBusy = false; if (!this.transport) this.executor.close(); }
           action = decision.action;
@@ -355,7 +415,7 @@ export class Engine {
         if (current !== this.state.snapshot || epoch !== this.state.epoch || revision !== this.state.revision || !this.ready) { this.dirty = true; continue; }
         const pending: Pending = { requestId: randomUUID(), action, tick: current.tick };
         const bytes = this.commandBytes(current, pending);
-        if (BigInt(bytes.length) > current.rules.max_command_bytes || bytes.length > 16384) throw new Error('Command too large');
+        if (BigInt(bytes.length) > current.rules.max_command_bytes || bytes.length > 16384) throw failure('application', 'COMMAND_TOO_LARGE', 'The strategy produced a command larger than the server allows', 'Inspect the decision record; the command was not sent.');
         await this.record({ kind: 'command', direction: 'outbound', requestId: pending.requestId, payload: { ...pending, run: current.run_id, epoch, raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length } });
         await new Promise<void>(resolve => setImmediate(resolve));
         if (current !== this.state.snapshot || epoch !== this.state.epoch || revision !== this.state.revision || !this.ready || this.stopped) {
@@ -363,7 +423,7 @@ export class Engine {
           this.dirty = true; continue;
         }
         // No await between the final check, pending insertion, and socket.send.
-        if (json(this.memory) !== memoryBefore) throw new Error('Revalidation mismatch');
+        if (json(this.memory) !== memoryBefore) throw failure('application', 'REVALIDATION_MISMATCH', 'Policy memory changed while a command was being recorded', 'This is a worker bug; the command was not sent.');
         this.state.pending.push(pending);
         if (decision) this.memory = decision.nextMemory;
         if (this.options.exercise && current.request_results.items.length === 5) this.exerciseCapacity = true;

@@ -57,6 +57,13 @@ test('a failed planet is reported with its failure tick', async () => {
   expect(console.log).toHaveBeenCalledWith('Collective success: false. Report in out/report.json.');
 });
 
+test('an enabled fault is announced', async () => {
+  f.finish = undefined;
+  process.argv.push('--fault', 'http-503');
+  await start();
+  expect(console.log).toHaveBeenCalledWith('Deliberate fault enabled: {"httpStatus":503}');
+  expect(f.options).toMatchObject({ faults: { httpStatus: 503 } });
+});
 test('--start-after-ms starts without waiting for every planet', async () => {
   f.finish = undefined;
   process.argv.push('--start-after-ms', '250');
