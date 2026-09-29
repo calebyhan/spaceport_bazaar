@@ -6,6 +6,13 @@ import { active, add, affordable, mapBundle, max, min, subtract, total, zero } f
 import type { AdvertisementBody, OfferBody, Offer, Bundle } from '../types';
 import { bundle, snapshot, offer, result } from './fixtures';
 
+// Fixed outcomes guard against the simulator and strategy sharing arithmetic bugs.
+const expected = {
+  cooperative: { accepts: 2, proposals: 1, ads: 7, health: 100n, final: bundle(17n, 0n, 2n) },
+  'low-stock': { accepts: 3, proposals: 0, ads: 6, health: 45n, final: bundle(0n, 0n, 0n) },
+  'production-drop': { accepts: 2, proposals: 1, ads: 7, health: 100n, final: bundle(2n, 0n, 2n) },
+};
+
 for (const scenario of ['cooperative', 'low-stock', 'production-drop'] as const) {
   test(`autonomous binary-protocol simulation: ${scenario}`, async () => {
     const s = snapshot(); s.run_id = `scenario-${scenario}`;
@@ -97,13 +104,14 @@ for (const scenario of ['cooperative', 'low-stock', 'production-drop'] as const)
       if (s.tick === 6n) s.phase = 4;
       s.world_version++; publish();
     }
-    assert.ok(accepts + proposals > 0, 'autonomous trades actually occurred');
+    assert.deepEqual({ accepts, proposals, ads, health: s.self.health, final: s.self.inventory }, expected[scenario]);
+    assert.deepEqual(history.map(point => point.tick), [0n, 1n, 2n, 3n, 4n, 5n, 6n]);
     assert.equal(s.self.failed_once, false);
     assert.equal(e.state.snapshot?.phase, 4);
     assert.deepEqual(e.state.snapshot?.self.inventory, s.self.inventory);
     assert.equal(e.state.pending.length, 0);
-    if (scenario === 'low-stock') assert.ok(accepts > 0);
-    if (scenario !== 'low-stock') assert.ok(proposals > 0);
+    e.stop();
+    await e.idle();
     console.log(`${scenario}: ${JSON.stringify({ accepts, proposals, ads, health: s.self.health.toString(), final: Object.fromEntries(Object.entries(s.self.inventory).map(([k,v]) => [k,v.toString()])), observations: history.length })}`);
   });
 }
