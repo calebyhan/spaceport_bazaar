@@ -21,6 +21,8 @@
 - [Trading strategy design](reference/strategy.md): broader strategy rationale and design proposals. For implemented behavior, use worker operations.
 - [Responsiveness assessment](reference/responsiveness.md): findings and evidence for measure responsiveness.
 - [Local simulation server](reference/simulator.md): multi-planet test server, balanced economy, and what it does not simulate.
+- [Strategy tournament and scoring](reference/tournament.md): score catalog strategies against each other on the simulator.
+- [Self-assessment evidence](self-assessment.md): the command and expected result behind each rating in sections 1, 2 and 6.
 - [Supplied validator guide](../artifacts/bazaar-protobuf-starter-linux/README.md): authoritative local exercise instructions.
 - [Protobuf schema](../artifacts/bazaar-protobuf-starter-linux/bazaar.proto): authoritative wire definitions.
 - [Environment template](../.env.example) and [database migration](../supabase/migrations/20260916000000_initial_dashboard.sql).

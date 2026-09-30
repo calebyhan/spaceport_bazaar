@@ -89,7 +89,7 @@ results, not connection failures, and never stop the worker.
 npm run test:diagnostics
 ```
 
-This runs the unchanged worker CLI as a separate process against 13 prepared
+This runs the unchanged worker CLI as a separate process against 14 prepared
 failures and prints `PASS`/`FAIL` for each. It uses the local
 [simulation server](../reference/simulator.md), deliberate server faults, and
 broken configurations. For each case it checks the printed category and code,
@@ -102,13 +102,14 @@ and the exit code where the failure is final. It covers:
   bytes
 - **Network:** nothing listening, an unresolvable host, and a server failing
   with HTTP 503
-- **Application:** a torn journal, and a second worker on the same host
+- **Application:** a torn journal, a second worker using the same token, and
+  two workers sharing one journal directory
 - **Lifecycle:** every stage in order through a finished run, and a server
   that goes silent mid-run (stale, then sync, then reconnect)
 
-The evidence directory printed at the end keeps each case's journal. Run the
-matrix when no other worker is running on the host, because the host lock
-would turn every case into `LOCK_HELD`.
+The evidence directory printed at the end keeps each case's journal. Every
+case uses its own simulated server, token and journal directory, so a worker
+already running on the host does not interfere.
 
 To reproduce a single fault by hand, start the simulator with `--fault`:
 

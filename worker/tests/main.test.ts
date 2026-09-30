@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { EngineOptions, Transport } from '../engine';
 const f = vi.hoisted(() => ({ sockets: [] as (EventEmitter & { protocol: string; readyState: number; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn>; ping: ReturnType<typeof vi.fn> })[], options: undefined as EngineOptions | undefined, transport: undefined as Transport | undefined, unlock: vi.fn(), journalAppend: vi.fn(), mirrorAppend: vi.fn(), journalClose: vi.fn(), loadEnv: vi.fn(), read: vi.fn(), stopped: false, idle: vi.fn(), fail: vi.fn(), receive: vi.fn(), disconnected: vi.fn(), record: vi.fn(), journalResolve: vi.fn(), exec: vi.fn(), snapshot: undefined as unknown, last: undefined as unknown, opened: vi.fn(), lock: vi.fn(), journalError: false }));
 vi.mock('node:child_process', () => ({ execFileSync: f.exec }));
-vi.mock('node:fs', () => ({ readFileSync: f.read }));
+vi.mock('node:fs', () => ({ readFileSync: f.read, realpathSync: (path: string) => `/real/${path}` }));
 vi.mock('../persistence', () => ({
   acquireLock: f.lock,
   Journal: class { previous = []; append = f.journalAppend; close = f.journalClose; resolve = f.journalResolve; constructor() { if (f.journalError) throw new SyntaxError('Unexpected end of JSON input'); } },
@@ -74,9 +74,20 @@ test('a torn journal is an application failure that names the recovery step', as
   f.journalError = true; await start();
   expect(process.exitCode).toBe(6); expect(printed()).toContain('[application] JOURNAL_UNREADABLE'); expect(f.sockets).toHaveLength(0);
 });
-test('a held host lock is an application failure before any socket opens', async () => {
+test('a token already in use on this host is an application failure before any socket opens', async () => {
   f.lock.mockImplementation(() => { throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' }); }); await start();
-  expect(process.exitCode).toBe(6); expect(printed()).toContain('[application] LOCK_HELD: Another worker on this host holds the worker lock'); expect(f.sockets).toHaveLength(0);
+  expect(process.exitCode).toBe(6); expect(printed()).toContain('[application] LOCK_HELD: Another worker on this host is already using this token'); expect(f.sockets).toHaveLength(0);
+});
+test('locks are keyed by a token hash and the journal directory, never the token itself', async () => {
+  vi.stubEnv('BAZAAR_JOURNAL_DIR', 'journal-p02'); await start();
+  expect(f.lock.mock.calls).toEqual([['worker-token', expect.stringMatching(/^[0-9a-f]{64}$/)], ['journal-directory', '/real/journal-p02']]);
+  expect(JSON.stringify(f.lock.mock.calls)).not.toContain('private-token');
+});
+test('a journal directory in use releases the token lock and fails before any socket opens', async () => {
+  const releaseToken = vi.fn();
+  f.lock.mockImplementationOnce(() => releaseToken).mockImplementationOnce(() => { throw new Error('EEXIST'); }); await start();
+  expect(process.exitCode).toBe(6); expect(printed()).toContain('[application] LOCK_HELD: Another worker on this host is writing to this journal directory');
+  expect(releaseToken).toHaveBeenCalledOnce(); expect(f.sockets).toHaveLength(0);
 });
 test('a held run lock is reported as LOCK_HELD to the engine', async () => {
   await start();
@@ -97,7 +108,7 @@ test('environment, credential selection, mirror and policy overrides flow into e
   f.options!.identity!({ run_id: 'run', self_station_id: 'P01', advertisements: { items: [] } } as unknown as Parameters<NonNullable<EngineOptions['identity']>>[0]);
   f.options!.done!(); f.options!.done!();
   expect(f.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'manifest' }));
-  expect(f.unlock).toHaveBeenCalledTimes(2); expect(f.journalClose).toHaveBeenCalledOnce(); expect(process.exitCode).toBe(0);
+  expect(f.unlock).toHaveBeenCalledTimes(3); expect(f.journalClose).toHaveBeenCalledOnce(); expect(process.exitCode).toBe(0);
 });
 test('the retired single-file journal setting fails startup instead of being ignored', async () => {
   vi.stubEnv('BAZAAR_JOURNAL', '/tmp/old.jsonl'); await start(); expect(process.exitCode).toBe(2); expect(f.sockets).toHaveLength(0);
@@ -188,7 +199,7 @@ test('reconnect backs off, resets after open, and stops after shutdown', async (
 });
 test.each(['SIGINT', 'SIGTERM'])('%s drains persistence and closes once, even when repeated', async signal => {
   await start(); signals.get(signal)!(); signals.get(signal)!(); await Promise.resolve(); await Promise.resolve();
-  expect(f.stopped).toBe(true); expect(f.journalClose).toHaveBeenCalledOnce(); expect(f.unlock).toHaveBeenCalledOnce(); expect(process.exitCode).toBe(0);
+  expect(f.stopped).toBe(true); expect(f.journalClose).toHaveBeenCalledOnce(); expect(f.unlock).toHaveBeenCalledTimes(2); expect(process.exitCode).toBe(0);
   expect(console.error).toHaveBeenCalledWith('Shutdown in progress; waiting for durable records and lock release.');
   expect(signals.has(signal)).toBe(true);
 });

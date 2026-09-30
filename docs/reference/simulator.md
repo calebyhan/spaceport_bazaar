@@ -37,7 +37,24 @@ by itself when the run finishes. Planets without a client never advertise or
 trade, so ours has nobody to trade with. Each planet's 30 starting units of
 the resources it does not produce last 30 ticks, so in this 40-tick example
 all three planets fail at tick 40. Connect a worker for every planet to see
-real trading. When the run finishes, the server prints each
+real trading.
+
+Several workers may run on one host as long as each uses its own token and
+its own `BAZAAR_JOURNAL_DIR`; a shared token or journal directory is refused
+with `LOCK_HELD`. For example, for three planets:
+
+```sh
+for p in P01 P02 P03; do
+  BAZAAR_ENDPOINT=ws://127.0.0.1:3100/ws BAZAAR_CREDENTIAL_FILE=.local/sim/credentials.json \
+  BAZAAR_STATION_ID=$p BAZAAR_JOURNAL_DIR=.local/sim/journal-$p npm run worker &
+done
+```
+
+`npm run test:exchange` automates the two-planet case: two worker processes
+trade water for food, and the check compares each client's final state with
+the server's records. See [testing](../testing.md). For many planets and
+strategies, use the [tournament](tournament.md), which runs clients inside
+one process. When the run finishes, the server prints each
 planet's outcome and writes `.local/sim/report.json`. The report contains
 server-side facts that no client sees, such as every planet's final inventory,
 health lost and first failure tick.

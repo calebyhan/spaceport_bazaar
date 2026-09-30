@@ -1,6 +1,7 @@
 import { decide } from './policy';
 import { defaultConfig } from './types';
 import type { Policy } from './strategy-contract';
+import { archetype, archetypes } from './archetypes';
 
 const strategies = {
   baseline: {
@@ -12,6 +13,10 @@ const strategies = {
     decide: (({ memory }) => ({ action: { kind: 'wait' }, nextMemory: memory,
       explanation: { policyVersion: 'observe-1', rationale: 'Observe strategy: intentionally take no trading action.' } })) satisfies Policy,
   },
+  // Simulation opponents; see worker/archetypes.ts.
+  par: { name: 'par', version: archetypes.par.name, description: 'Opponent: trades 1:1 lots with advertised sellers of its needs.', decide: archetype(archetypes.par) },
+  greedy: { name: 'greedy', version: archetypes.greedy.name, description: 'Opponent: asks and accepts only 2:1 in its favour.', decide: archetype(archetypes.greedy) },
+  passive: { name: 'passive', version: archetypes.passive.name, description: 'Opponent: never proposes; accepts 1:1 offers above a larger reserve.', decide: archetype(archetypes.passive) },
 } as const;
 export type StrategyName = keyof typeof strategies;
 export function listStrategies() {

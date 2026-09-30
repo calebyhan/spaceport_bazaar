@@ -239,7 +239,7 @@ export class World {
       first_failure_tick: s.first_failure_tick.value, final_health: s.health, final_inventory: { ...s.inventory },
       final_resources: total(s.inventory), unmet_total: { ...s.unmet_total }, shortage_ticks: s.shortage_ticks,
       health_lost: s.health_lost,
-      produced_total: { ...s.produced_total }, imported_total: { ...s.imported_total }, exported_total: { ...s.exported_total },
+      produced_total: { ...s.produced_total }, consumed_total: { ...s.consumed_total }, imported_total: { ...s.imported_total }, exported_total: { ...s.exported_total },
       transactions: this.transactions.filter(t => t.proposer_id === s.station_id || t.recipient_id === s.station_id).length,
     }));
     return { run_id: this.runId, tick: this.tick, phase: this.phase, collective_success: stations.every(s => s.survived),

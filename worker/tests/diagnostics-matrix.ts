@@ -50,6 +50,20 @@ const withServer = (faults: Faults, token?: string, react?: React) => async (jou
   finally { await server.close(); }
 };
 const retries = () => stopOnce(/attempt 2\)/);
+// Starts a first worker (P01, its own journal directory), runs `second` once it
+// is synchronized, then stops the first worker cleanly.
+async function whileRunning(second: (url: string, tokens: string[], firstJournal: string) => Promise<Outcome>): Promise<Outcome> {
+  const { world, players, tokens } = createSimulation({ ...defaultEconomy, planets: 3, durationTicks: 6n }, 100);
+  const server = await startSimServer({ world, tokens, tickMs: 100 });
+  const firstJournal = await mkdtemp(join(tmpdir(), 'bazaar-first-'));
+  let outcome: Promise<Outcome> | undefined;
+  try {
+    await worker({ BAZAAR_ENDPOINT: server.url, BAZAAR_TOKEN: players[0].token, BAZAAR_JOURNAL_DIR: firstJournal }, (output, child) => {
+      if (!outcome && /-> synchronized/.test(output)) outcome = second(server.url, players.map(p => p.token), firstJournal).finally(() => child.kill('SIGTERM'));
+    });
+  } finally { await server.close(); }
+  return outcome ?? { code: null, output: 'first worker never synchronized' };
+}
 
 const cases: Case[] = [
   { name: 'endpoint not configured', expect: '[configuration] MISSING_ENDPOINT', exit: 2,
@@ -74,15 +88,10 @@ const cases: Case[] = [
     await writeFile(join(journal, '2026-01-01-P01-run.jsonl'), '{"kind":"manifest","payload":{}}\n{"kind":"sta');
     return worker({ BAZAAR_ENDPOINT: 'ws://127.0.0.1:3100/ws', BAZAAR_TOKEN: 'token', BAZAAR_JOURNAL_DIR: journal });
   } },
-  { name: 'second worker on the same host', expect: '[application] LOCK_HELD', exit: 6, run: async journal => {
-    const { server, token } = await sim();
-    let second: Promise<Outcome> | undefined;
-    const first = worker({ BAZAAR_ENDPOINT: server.url, BAZAAR_TOKEN: token, BAZAAR_JOURNAL_DIR: journal + '-first' }, (output, child) => {
-      if (!second && /-> synchronized/.test(output)) second = worker({ BAZAAR_ENDPOINT: server.url, BAZAAR_TOKEN: token, BAZAAR_JOURNAL_DIR: journal }).finally(() => child.kill('SIGTERM'));
-    });
-    await first; await server.close();
-    return second ?? { code: null, output: 'first worker never synchronized' };
-  } },
+  { name: 'second worker using the same token', expect: '[application] LOCK_HELD: Another worker on this host is already using this token', exit: 6,
+    run: journal => whileRunning((url, tokens) => worker({ BAZAAR_ENDPOINT: url, BAZAAR_TOKEN: tokens[0], BAZAAR_JOURNAL_DIR: journal })) },
+  { name: 'two workers sharing a journal directory', expect: '[application] LOCK_HELD: Another worker on this host is writing to this journal directory', exit: 6,
+    run: () => whileRunning((url, tokens, shared) => worker({ BAZAAR_ENDPOINT: url, BAZAAR_TOKEN: tokens[1], BAZAAR_JOURNAL_DIR: shared })) },
   { name: 'full lifecycle to a finished run', expect: 'finished -> ', exit: 0, run: async journal => {
     const { server, token } = await sim({}, 4n);
     try {

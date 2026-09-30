@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { Engine } from './engine';
@@ -33,9 +33,10 @@ function credentialToken(path: string, station: string): string {
   if (typeof token !== 'string') throw configuration('UNKNOWN_STATION', `The credential file has no token for station ${station}`, 'Set BAZAAR_STATION_ID to a station listed in the credential file.');
   return token;
 }
-function lock(run: string, station: string) {
+const staleLockHint = 'If it crashed, confirm the PID in /tmp/spaceport-bazaar-*.lock/owner.json is dead, then remove only that lock directory.';
+function lock(run: string, station: string, message = 'Another worker on this host is already trading this run and station') {
   try { return acquireLock(run, station); } catch {
-    throw failure('application', 'LOCK_HELD', 'Another worker on this host holds the worker lock', 'Stop the other worker. If it crashed, confirm the PID in /tmp/spaceport-bazaar-*.lock/owner.json is dead, then remove only that lock directory.');
+    throw failure('application', 'LOCK_HELD', message, `Stop the other worker. ${staleLockHint}`);
   }
 }
 
@@ -88,7 +89,7 @@ async function main() {
   }
   let unlock: (() => void) | undefined, socket: WebSocket | undefined, reconnect: NodeJS.Timeout | undefined;
   let closed = false, attempts = 0, connectedAt: string | undefined;
-  let unlockHost: (() => void) | undefined;
+  let unlockToken: (() => void) | undefined, unlockJournal: (() => void) | undefined;
   const finish = async (success: boolean, diagnosis?: Diagnosis) => {
     if (closed) return;
     closed = true; clearTimeout(reconnect); socket?.close();
@@ -114,7 +115,7 @@ async function main() {
         await engine.idle();
       } catch { /* Best-effort final record; already-failed persistence must not block shutdown. */ }
     }
-    unlock?.(); unlockHost?.(); journal.close();
+    unlock?.(); unlockToken?.(); unlockJournal?.(); journal.close();
     if (diagnosis) console.error(formatDiagnosis(diagnosis));
     console.log(success ? 'Worker completed.' : 'Worker stopped; inspect the local journal before recovery.');
     process.exitCode = diagnosis ? exitCodes[diagnosis.category] : success ? 0 : 1;
@@ -216,7 +217,13 @@ async function main() {
   process.once('SIGTERM', () => shutdown('SIGTERM'));
   // Acquire before opening a socket: a second connection can fence the first
   // at the server before its initial snapshot reveals the run identity.
-  unlockHost = lock('host-worker', 'single-owner');
+  // One worker per token, acquired before the socket opens: a second
+  // connection with the same token would fence the first at the server before
+  // its snapshot reveals the station. Workers with different tokens (stations)
+  // may share a host, but each needs its own journal directory.
+  unlockToken = lock('worker-token', createHash('sha256').update(token).digest('hex'), 'Another worker on this host is already using this token');
+  try { unlockJournal = lock('journal-directory', realpathSync(process.env.BAZAAR_JOURNAL_DIR ?? '.local/journal'), 'Another worker on this host is writing to this journal directory'); }
+  catch (error) { unlockToken(); throw error; }
   connect();
 }
 void main().catch(error => {

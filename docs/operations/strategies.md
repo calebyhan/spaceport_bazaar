@@ -26,6 +26,7 @@ npm run worker -- --list-strategies
 | --- | --- |
 | `baseline` | Existing reserve-preserving trading policy; the default. |
 | `observe` | Always returns an intentional `wait`. Useful for observing a run without submitting trades. It still performs protocol readiness and recovery. |
+| `par`, `greedy`, `passive` | Simple simulation opponents (1:1 trader, 2:1 trader, accept-only). See the [tournament](../reference/tournament.md); not meant for class runs. |
 
 Choose using the CLI:
 

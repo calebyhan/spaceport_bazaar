@@ -361,10 +361,13 @@ trading; the journal retains prepared or uncertain commands for reconciliation.
 A torn journal is rejected, not silently truncated. A disk-full or broken
 mirror therefore affects availability, not silent command tracking.
 
-A host-wide atomic directory lock is acquired **before opening the socket**,
-so a second worker cannot first fence the current server session. A second lock
-keys the observed run/station independently of checkout and endpoint aliases.
-This intentionally permits only one worker per host, even for different runs.
+An atomic directory lock keyed by a hash of the access token is acquired
+**before opening the socket**, so a second worker with the same token cannot
+first fence the current server session. A second lock claims the journal
+directory, and a third keys the observed run/station independently of checkout
+and endpoint aliases. Workers for different stations (different tokens) may
+run on one host, but each needs its own `BAZAAR_JOURNAL_DIR`; sharing one is
+refused with `LOCK_HELD`.
 Locks live under `/tmp/spaceport-bazaar-*.lock/owner.json`; clean shutdown removes
 the owned locks. After SIGKILL/crash, inspect the PID, verify that no owner is
 alive, retain the journal, and manually remove only the stale lock directory.
