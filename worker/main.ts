@@ -6,7 +6,6 @@ import { Engine } from './engine';
 import { acquireLock, Journal } from './persistence';
 import { workerOptions } from './options';
 import { listStrategies } from './strategies';
-import { defaultConfig } from './types';
 import { controlFile, readControls } from './controls';
 import { diagnose, exitCodes, failure, formatDiagnosis, handshakeRejected, socketError, type Diagnosis } from './diagnostics';
 import { formatLifecycle } from './lifecycle';
@@ -69,7 +68,7 @@ async function main() {
     throw failure('application', 'JOURNAL_UNREADABLE', 'The journal directory could not be opened, or its newest file has a torn or corrupt line',
       'Check permissions for BAZAAR_JOURNAL_DIR and inspect the last line of its newest file; never delete it to bypass recovery.');
   }
-  const config = { ...defaultConfig, version: selection.strategy.version };
+  const config = { ...selection.strategy.defaults, version: selection.strategy.version };
   const settings = {
     reserveTicks: 'BAZAAR_RESERVE_TICKS', planTicks: 'BAZAAR_PLAN_TICKS', urgentTicks: 'BAZAAR_URGENT_TICKS', stockpileTicks: 'BAZAAR_STOCKPILE_TICKS',
     lot: 'BAZAAR_LOT', ttl: 'BAZAAR_TTL', cooldownTicks: 'BAZAAR_COOLDOWN_TICKS', maxOpenOffers: 'BAZAAR_MAX_OPEN_OFFERS',

@@ -25,15 +25,20 @@ npm run worker -- --list-strategies
 | Name | Behavior |
 | --- | --- |
 | `baseline` | Existing reserve-preserving trading policy; the default. |
-| `observe` | Always returns an intentional `wait`. Useful for observing a run without submitting trades. It still performs protocol readiness and recovery. |
-| `par`, `greedy`, `passive` | Simple simulation opponents (1:1 trader, 2:1 trader, accept-only). See the [tournament](../reference/tournament.md); not meant for class runs. |
+| `surplus50` | Par exchanges, a 16-tick replenishment target, 2-tick reserve, 6-unit lots and fair distribution. |
+| `surplus25` | Par exchanges, a 20-tick target, 4-tick reserve and smaller 3-unit lots. |
+| `balanced` | Par exchanges, an 8-tick target, 2-tick reserve, 2-unit lots and no extra stockpile target. |
+
+The former observe, par, greedy and passive policies have been removed, including
+the simulation archetypes. Historical journals remain readable.
 
 ## Generous mode: a live switch
 
 The baseline has a generous mode you can turn on and off **while the worker
 runs**, from the switch at the top of the dashboard's
 [live view](../setup/dashboard.md). It takes effect from the worker's next
-decision; no restart is needed. While it is on, the baseline:
+decision; no restart is needed. The new survival policies always use cooperative par trading independently of this
+baseline switch. While it is on, the baseline:
 
 - asks only at par (1:1) instead of opening at a premium;
 - also accepts safe par offers that it pays for from whole-run spare stock,
@@ -59,27 +64,23 @@ which matters if prizes go to the largest stock.
 The switch is a small JSON file, `.local/controls.json` by default
 (`{"generous":true}`). The dashboard replaces it atomically and the worker
 reads it before every decision. A missing or unreadable file means off. Set
-`BAZAAR_CONTROL_FILE` to the same path for both if you move it. Only the
-baseline reads it; `observe` and the simulation opponents ignore it, and
-simulation and tournament workers are never wired to it.
+`BAZAAR_CONTROL_FILE` to the same path for both if you move it. Simulation and tournament workers are never wired to this file.
 
 Choose using the CLI:
 
 ```sh
-BAZAAR_ENV_FILE=.env.worker.local npm run worker -- --strategy observe
 BAZAAR_ENV_FILE=.env.worker.local npm run worker -- --strategy=baseline
 ```
 
 Or put this setting in your existing private worker environment file:
 
 ```dotenv
-BAZAAR_STRATEGY=observe
+BAZAAR_STRATEGY=baseline
 ```
 
 Precedence is **CLI `--strategy` → `BAZAAR_STRATEGY` → `baseline`**. The worker
 loads `BAZAAR_ENV_FILE` before resolving the selection. Endpoint and token setup
-are unchanged; see [worker operations](worker.md). The existing `--supabase`
-flag can be combined with `--strategy`. Unknown names, missing option values and
+are unchanged; see [worker operations](worker.md). Persistence is local only; the old `--supabase` flag is rejected. Unknown names, missing option values and
 unknown CLI flags fail startup instead of silently selecting a different policy.
 
 Selection is fixed for a worker process. To switch, stop the old worker cleanly
@@ -93,22 +94,21 @@ combine it with `--strategy` or a `BAZAAR_STRATEGY` environment setting; that
 combination is rejected. The automated validator test isolates itself from an
 ambient strategy setting.
 
-All new journal entries carry `strategy` (`baseline`, `observe`, or `exercise`).
-The Supabase event payload stores the same identity as `_strategy`; the existing
-connection metadata is unchanged. No database migration is needed.
+All new journal entries carry their selected `strategy` (or `exercise`).
+Strategy presets populate both live and offline configuration; explicit quantity
+overrides remain supported. The cooperative policies always enforce par pricing.
 
 ## Check a planet state and incoming offer offline
 
 A supplied [incoming-gift scenario](../../examples/strategies/incoming-gift.json)
 contains a complete state, a separate incoming offer, and independently specified
-expected actions for both strategies:
+expected actions for baseline:
 
 ```sh
 npm run strategy:check -- --input examples/strategies/incoming-gift.json
-npm run strategy:check -- --input examples/strategies/incoming-gift.json --strategy observe
 ```
 
-The baseline must accept the offer named `gift`; observe must wait. The checker
+The baseline must accept the offer named `gift`. The checker
 runs the **same registered policy in the same worker-thread executor** as live
 execution. It does not create a socket, engine, journal, database connection,
 host lock, validator process or Next.js application. No credentials are needed.
@@ -128,8 +128,7 @@ For example, the expected-action portion is:
 ```json
 {
   "expected": {
-    "baseline": { "kind": "accept", "body": { "offer_id": "gift" } },
-    "observe": { "kind": "wait" }
+    "baseline": { "kind": "accept", "body": { "offer_id": "gift" } }
   }
 }
 ```
@@ -207,8 +206,7 @@ and pass it to the engine. `append` must resolve only when its required writes
 finish and reject on failure. Keep the durable `Journal` and its recovery records
 in live trading; in-memory sinks and captured transports are suitable for tests.
 The engine retains command persistence ordering, stale-decision checks and
-responsiveness telemetry regardless of the chosen policy. The existing
-`--supabase` option adds a mirror without modifying policy code.
+responsiveness telemetry regardless of the chosen policy. The live worker uses only the local journal.
 
 ## Verification
 
@@ -218,7 +216,7 @@ npm test                     # all tests, 100% required coverage, TypeScript, li
 npm run test:validator       # existing local live-protocol integration
 ```
 
-The strategy suite checks both real worker-thread policies, exact JSON integers,
+The strategy suite checks the real worker-thread baseline policy, exact JSON integers,
 expected-action mismatches, malformed inputs, environment/CLI precedence,
 strategy-specific recovery, and swapping transport/log sinks without changing
 the trading policy. The supplied scenario is a deterministic decision test,

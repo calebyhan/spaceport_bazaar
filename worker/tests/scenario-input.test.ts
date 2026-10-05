@@ -3,12 +3,12 @@ import { expect, test } from 'vitest';
 import { checkScenario } from '../scenario';
 const fixture = () => JSON.parse(readFileSync('examples/strategies/incoming-gift.json', 'utf8'));
 
-test.each(['baseline', 'observe'])('JSON gift scenario checks the real %s decision offline', async strategy => {
+test.each(['baseline'])('JSON gift scenario checks the real %s decision offline', async strategy => {
   const value = fixture(), before = structuredClone(value);
   const report = await checkScenario(value, strategy);
   expect(report.passed).toBe(true); expect(report.strategy).toBe(strategy);
   expect(value).toEqual(before);
-  expect(report.decision.action.kind).toBe(strategy === 'baseline' ? 'accept' : 'wait');
+  expect(report.decision.action.kind).toBe('accept');
 });
 test('fixture strategy and default selection work, and a wrong expected action fails the check', async () => {
   const value = fixture();
@@ -20,8 +20,8 @@ test('wire-sized integers stay exact, including expected action quantities', asy
   const value = fixture();
   value.state.self.inventory.water = '9007199254740993';
   value.config = { lot: '2', ttl: 1 };
-  value.expected.observe = { kind: 'offer', body: { recipient_id: 'other', give: { water: '9007199254740993', food: 0, components: 0 }, receive: { water: 0, food: 1, components: 0 }, expires_tick: '3' } };
-  const report = await checkScenario(value, 'observe');
+  value.expected.baseline = { kind: 'offer', body: { recipient_id: 'other', give: { water: '9007199254740993', food: 0, components: 0 }, receive: { water: 0, food: 1, components: 0 }, expires_tick: '3' } };
+  const report = await checkScenario(value, 'baseline');
   expect(report.passed).toBe(false);
   expect(report.expectedAction).toMatchObject({ body: { give: { water: 9007199254740993n } } });
 });
@@ -33,7 +33,7 @@ test('existing offers, results, advertisements and nullable fields are read from
   value.state.advertisements.items = [{ advertisement_id: 'ad', station_id: 'peer', status: 1, selling: { items: [2] }, seeking: { items: [1] }, expires_tick: '6' }];
   value.state.request_results.items = [{ protocol_version: '2.0', run_id: 'test-run', request_id: 'req', ok: true, code: 1, processed_tick: '0', processed_version: '1', object_id: { value: 'object' }, transaction_id: { null: true }, retry_after_tick: { value: '1' } }];
   value.state.transactions.items = [{ transaction_id: 'history' }];
-  expect((await checkScenario(value, 'observe')).passed).toBe(true);
+  expect((await checkScenario(value, 'baseline')).passed).toBe(true);
 });
 test.each([null, [], 4, false])('invalid top-level value %j fails clearly', async value => {
   await expect(checkScenario(value)).rejects.toThrow('scenario must be an object');
@@ -72,4 +72,12 @@ test.each([
 ] satisfies [string, (s: ReturnType<typeof fixture>) => void][])('%s is rejected before strategy execution', async (_name, mutate) => {
   const value = fixture(); mutate(value);
   await expect(checkScenario(value)).rejects.toThrow();
+});
+
+test.each(['surplus50', 'surplus25', 'balanced'])('offline %s uses the same preset as the live engine', async strategy => {
+  const value = fixture(); value.expected[strategy] = value.expected.baseline;
+  const report = await checkScenario(value, strategy);
+  expect(report.passed).toBe(true);
+  const { getStrategy } = await import('../strategies');
+  expect(report.decision.explanation.config).toMatchObject(getStrategy(strategy).defaults);
 });

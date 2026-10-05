@@ -16,7 +16,7 @@ export function tournamentOptions(args: string[]) {
     if (!/^[0-9]+$/.test(value) || Number(value) < least || Number(value) > 100000) throw new Error(`--${name} values must be integers from ${least} to 100000`);
     return Number(value);
   };
-  const candidates = list(values.candidates, 'baseline,par,greedy,passive'), field = list(values.field, 'par,greedy,passive,baseline');
+  const candidates = list(values.candidates, 'baseline'), field = list(values.field, 'baseline');
   for (const name of [...candidates, ...field]) getStrategy(name);
   const mode = values.mode ?? 'both';
   if (!['everyone', 'field', 'both'].includes(mode)) throw new Error('--mode must be everyone, field or both');

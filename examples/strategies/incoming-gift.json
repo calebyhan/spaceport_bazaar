@@ -147,9 +147,6 @@
       "body": {
         "offer_id": "gift"
       }
-    },
-    "observe": {
-      "kind": "wait"
     }
   }
 }

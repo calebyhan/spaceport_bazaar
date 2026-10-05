@@ -1,3 +1,4 @@
+import { cooperativePlan, deliveries, donationSpare, type SurvivalProfile } from './cooperation';
 import { type Action, type Bundle, type Command, type Snapshot, type Pending, type Memory, type Config, type Resource, resources } from './types';
 import { active, add, type Forecast, forecast, liabilityTotal, liabilities, mapBundle, max, min, productionEstimate, reserve, spendable, subtract, total, tradeSafety, zero } from './domain';
 import { askTerms, canPay, observeMarket, plan, resourceNumber, worth } from './market';
@@ -31,17 +32,24 @@ const MAX_OPEN_GIFTS = 2;
 // Generous trading asks only at par; accepts safe par offers paid from
 // whole-run spare that do not raise our plan value; and gives true surplus
 // away free to stations that seek it. Every trade stays at or above par.
-export interface Leniency { generous?: boolean }
-export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: Config, { generous = false }: Leniency = {}) {
+export interface Leniency { generous?: boolean; cooperative?: SurvivalProfile }
+export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: Config, { generous = false, cooperative }: Leniency = {}) {
   if (generous) config = { ...config, maxPremiumPct: 0n };
   const stock = spendable(s, pending), safety = reserve(s, config);
   const base = forecast(s, stock);
   const commitments = liabilities(s, pending);
   const market = observeMarket(s, config, memory.failed);
-  const p = plan(s, stock, market, config);
+  const originalPlan = plan(s, stock, market, config);
+  const p = cooperative ? cooperativePlan(s, stock, originalPlan, config) : originalPlan;
+  const served = cooperative ? deliveries(s, config.planTicks) : new Map<string, bigint>();
+  const giftSpare = cooperative ? donationSpare(s, stock, config) : mapBundle(r => p.sellable[r] - max(1n, s.self.upkeep_per_tick[r]) * config.stockpileTicks);
+  const committedPeers = new Set([
+    ...s.offers.items.filter(o => o.proposer_id === s.self_station_id && active(o.status, o.expires_tick, s.tick)).map(o => o.recipient_id),
+    ...pending.flatMap(q => q.action.kind === 'offer' ? [q.action.body.recipient_id] : []),
+  ]);
   // Why each open inbound offer was or was not taken, for per-offer audits.
   const inbound: Record<string, { verdict: 'accept' | 'pass'; reason: string; value?: number }> = {};
-  const explanation = { policyVersion: config.version, config, generous, input: { run: s.run_id, sequence: s.snapshot_sequence, version: s.world_version, tick: s.tick }, commitments, reserve: safety, forecast: base, plan: p, market, inbound, rationale: '' };
+  const explanation = { cooperative, policyVersion: config.version, config, generous, input: { run: s.run_id, sequence: s.snapshot_sequence, version: s.world_version, tick: s.tick }, commitments, reserve: safety, forecast: base, plan: p, market, inbound, rationale: '' };
   const wait = (reason: string) => ({ action: { kind: 'wait' } as Action, nextMemory: memory, explanation: { ...explanation, rationale: reason } });
   if (s.phase !== 2 || s.self.failed_once || s.self.health === 0n || s.tick >= s.rules.duration_ticks) return wait('Phase or permanent failure prohibits trading.');
   if (BigInt(pending.length) >= config.maxInFlight) return wait('Every in-flight slot awaits an authoritative result.');
@@ -61,7 +69,8 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
     if (inFlight.has(key)) return 'an identical command is already awaiting its result';
     const last = memory.attempted[key];
     if (last !== undefined && s.tick < last && !lastAccepted(s, action)) return 'cooling down after an identical attempt';
-    candidates.push({ action, rank: [...survival(after), milli(realized), kind, milli(expected), evidence], rationale });
+    const fairness = action.kind === 'offer' ? -(served.get(action.body.recipient_id) ?? 0n) : 0n;
+    candidates.push({ action, rank: [...survival(after), milli(realized), kind, fairness, milli(expected), evidence], rationale });
   };
 
   // Withdraw our offers that live production and upkeep have made unsafe.
@@ -111,6 +120,7 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
       ...pending.flatMap(q => q.action.kind === 'offer' ? [q.action.body] : []),
     ].flatMap(o => resources.filter(r => o.receive[r] > 0n).map(r => `${o.recipient_id}:${r}`)));
     for (const station of market.stations) {
+      if (cooperative && committedPeers.has(station.id)) continue;
       for (const gain of resources) {
         if (!station.gives[gain] || asked.has(`${station.id}:${gain}`)) continue;
         for (const pay of resources) {
@@ -140,9 +150,9 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
       ...pending.flatMap(q => q.action.kind === 'offer' ? [q.action.body] : []),
     ].filter(o => total(o.receive) === 0n).map(o => o.recipient_id));
     for (const station of gifting.size < MAX_OPEN_GIFTS ? market.stations : []) {
-      if (gifting.has(station.id)) continue;
+      if (gifting.has(station.id) || (cooperative && committedPeers.has(station.id))) continue;
       for (const r of station.wants) {
-        const amount = min(config.lot, p.sellable[r] - max(1n, s.self.upkeep_per_tick[r]) * config.stockpileTicks);
+        const amount = min(config.lot, giftSpare[r]);
         if (amount <= 0n) continue;
         const give = mapBundle(x => x === r ? amount : 0n);
         if (!outgoingSafe(s, pending, give, zero(), expiry, config)) continue;
@@ -170,7 +180,7 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
     for (let i = 0; i < a.rank.length; i++) if (a.rank[i] !== b.rank[i]) return a.rank[i] > b.rank[i] ? -1 : 1;
     return fingerprint(a.action) < fingerprint(b.action) ? -1 : 1;
   });
-  const waitRank = [...survival(base), 0n, Kind.wait, 0n, 0n];
+  const waitRank = [...survival(base), 0n, Kind.wait, 0n, 0n, 0n];
   // No candidate carries the wait kind, so every rank differs from waitRank somewhere.
   const best = candidates.find(candidate => {
     const i = candidate.rank.findIndex((value, j) => value !== waitRank[j]);

@@ -10,14 +10,14 @@ so any registered strategy can be evaluated without code changes.
 
 ```sh
 npm run tournament                                   # defaults below, about 10 minutes
-npm run tournament -- --candidates baseline,par --planets 9 --seeds 5 --tick-ms 50
+npm run tournament -- --candidates baseline --planets 9 --seeds 5 --tick-ms 50
 ```
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--candidates` | `baseline,par,greedy,passive` | Strategies to score |
+| `--candidates` | `baseline` | Strategies to score |
 | `--mode` | `both` | `everyone`, `field` or `both` (see below) |
-| `--field` | `par,greedy,passive,baseline` | Opponents for P02, P03, …, used in rotation in `field` mode |
+| `--field` | `baseline` | Opponents for P02, P03, …, used in rotation in `field` mode |
 | `--planets` | `3,6,9` | Planet counts; each builds a balanced economy |
 | `--seeds` | `2` | A count (seeds 1..N) or a list such as `4,7` |
 | `--duration` | 120 | Ticks per run |
@@ -39,17 +39,10 @@ line per trial. `scoreboard.json` keeps every trial's server report.
   rotation of opponents. This answers: *how does this strategy do for us
   when we do not control what classmates run?*
 
-Opponents are simple, explainable archetypes in
-[`worker/archetypes.ts`](../../worker/archetypes.ts), modelled on
-`scripts/explore-market.mjs`:
-
-- **`par`** trades 1:1 lots with advertised sellers of its needs.
-- **`greedy`** asks for and accepts only 2:1 in its favour.
-- **`passive`** never proposes; it accepts at par above a larger reserve.
-
-All three advertise their specialty and needs, keep one command in flight,
-and record a verdict for every incoming offer. Because they are in the
-catalog, a real worker can also run one: `npm run worker -- --strategy par`.
+Baseline, surplus50, surplus25 and balanced are registered. The defaults still
+use baseline; pass `--candidates baseline,surplus50,surplus25,balanced` to compare
+all four. The former par, greedy and passive opponents have been removed. The
+historical results below describe the retired catalog.
 
 ## Scoring
 

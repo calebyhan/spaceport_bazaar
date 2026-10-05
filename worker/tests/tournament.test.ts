@@ -56,7 +56,7 @@ afterEach(async () => { if (dir) await rm(dir, { recursive: true, force: true })
 
 test('a real trial plays every planet with its named strategy and keeps per-planet journals', async () => {
   dir = await mkdtemp(join(tmpdir(), 'tournament-'));
-  const { report, failures } = await runTrial({ economy: { ...defaultEconomy, planets: 3, durationTicks: 6n }, tickMs: 60, strategies: ['baseline', 'par', 'passive'], journalDir: dir });
+  const { report, failures } = await runTrial({ economy: { ...defaultEconomy, planets: 3, durationTicks: 6n }, tickMs: 60, strategies: ['baseline', 'baseline', 'baseline'], journalDir: dir });
   expect(failures).toEqual([]);
   expect(report).toMatchObject({ phase: 4, tick: 6n });
   expect(report.stations.map(s => s.station_id)).toEqual(['P01', 'P02', 'P03']);
@@ -65,7 +65,7 @@ test('a real trial plays every planet with its named strategy and keeps per-plan
 }, 20000);
 
 test('client failures are counted and a run starts even if clients never become ready', async () => {
-  const { report, failures } = await runTrial({ economy: { ...defaultEconomy, planets: 3, durationTicks: 2n }, tickMs: 30, strategies: ['par', 'par', 'par'], faults: { garbage: true }, startAfterMs: 50 });
+  const { report, failures } = await runTrial({ economy: { ...defaultEconomy, planets: 3, durationTicks: 2n }, tickMs: 30, strategies: ['baseline', 'baseline', 'baseline'], faults: { garbage: true }, startAfterMs: 50 });
   expect(failures.sort()).toEqual(['P01: protocol UNDECODABLE_FRAME', 'P02: protocol UNDECODABLE_FRAME', 'P03: protocol UNDECODABLE_FRAME']);
   expect(report.phase).toBe(4);
 }, 20000);

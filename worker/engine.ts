@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { Action, Command, Config, Memory, Pending, Snapshot } from './types';
-import { defaultConfig } from './types';
 import { decode, encode, type ServerMessage } from './codec';
 import { json } from './serialization';
 import { StrategyExecutor, StrategyTimeout, type Evaluate } from './strategy';
@@ -129,7 +128,7 @@ export class Engine {
     const selected = getStrategy(options.strategyName);
     this.strategyName = selected.name;
     this.executor = new StrategyExecutor(selected.name);
-    this.config = options.config ?? { ...defaultConfig, version: selected.version };
+    this.config = options.config ?? { ...selected.defaults, version: selected.version };
   }
   connect(transport: Transport) {
     this.transport = transport; this.ready = false; this.readySequence = undefined;

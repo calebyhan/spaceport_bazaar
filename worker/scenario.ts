@@ -82,7 +82,7 @@ export async function checkScenario(value: unknown, override?: string) {
     if (snapshot.offers.items.some(existing => existing.offer_id === offer.offer_id)) throw new Error('incomingOffer duplicates a state offer ID');
     snapshot.offers.items.push(offer);
   }
-  const config: Config = { ...defaultConfig, version: strategy.version };
+  const config: Config = { ...strategy.defaults, version: strategy.version };
   for (const [key, raw] of Object.entries(object(scenario.config ?? {}, 'config'))) {
     if (key === 'version' || !Object.hasOwn(defaultConfig, key)) throw new Error('Unknown config quantity');
     const quantity = read(raw, 'uint', 'config.' + key) as bigint;

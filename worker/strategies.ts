@@ -1,22 +1,19 @@
 import { decide } from './policy';
+import { survivalProfiles, type SurvivalProfile } from './cooperation';
+import { survivalPolicy } from './survival';
 import { defaultConfig } from './types';
 import type { Policy } from './strategy-contract';
-import { archetype, archetypes } from './archetypes';
 
+const survivalDefaults = (profile: SurvivalProfile) => ({ ...defaultConfig, ...survivalProfiles[profile],
+  maxPremiumPct: 0n, maxOpenOffers: 4n, urgentTicks: 6n, adTtl: 6n, parRetryTicks: 1n, version: `${profile}-1` });
 const strategies = {
   baseline: {
-    name: 'baseline', version: defaultConfig.version, description: 'Reserve-preserving trading policy; honours the live generous switch.',
+    name: 'baseline', defaults: defaultConfig, version: defaultConfig.version, description: 'Reserve-preserving trading policy; honours the live generous switch.',
     decide: (({ snapshot, pending, memory, config, controls }) => decide(snapshot, pending, memory, config, { generous: controls?.generous })) satisfies Policy,
   },
-  observe: {
-    name: 'observe', version: 'observe-1', description: 'Observe updates and intentionally make no trades.',
-    decide: (({ memory }) => ({ action: { kind: 'wait' }, nextMemory: memory,
-      explanation: { policyVersion: 'observe-1', rationale: 'Observe strategy: intentionally take no trading action.' } })) satisfies Policy,
-  },
-  // Simulation opponents; see worker/archetypes.ts.
-  par: { name: 'par', version: archetypes.par.name, description: 'Opponent: trades 1:1 lots with advertised sellers of its needs.', decide: archetype(archetypes.par) },
-  greedy: { name: 'greedy', version: archetypes.greedy.name, description: 'Opponent: asks and accepts only 2:1 in its favour.', decide: archetype(archetypes.greedy) },
-  passive: { name: 'passive', version: archetypes.passive.name, description: 'Opponent: never proposes; accepts 1:1 offers above a larger reserve.', decide: archetype(archetypes.passive) },
+  surplus50: { name: 'surplus50', defaults: survivalDefaults('surplus50'), version: 'surplus50-1', description: '50% surplus: cooperative par trades, rolling supply and fair distribution of safe excess.', decide: survivalPolicy('surplus50') },
+  surplus25: { name: 'surplus25', defaults: survivalDefaults('surplus25'), version: 'surplus25-1', description: '25% surplus: larger reserves, smaller par exchanges and conservative donations.', decide: survivalPolicy('surplus25') },
+  balanced: { name: 'balanced', defaults: survivalDefaults('balanced'), version: 'balanced-1', description: 'Just enough: short replenishment targets, small par exchanges and one commitment per peer; best-effort coordination.', decide: survivalPolicy('balanced') },
 } as const;
 export type StrategyName = keyof typeof strategies;
 export function listStrategies() {

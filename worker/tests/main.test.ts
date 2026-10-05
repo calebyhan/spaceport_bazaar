@@ -226,16 +226,16 @@ test('strategy setting reaches the engine and CLI overrides the environment', as
   vi.stubEnv('BAZAAR_STRATEGY', 'observe'); process.argv.push('--strategy=baseline'); await start();
   expect(f.options?.strategyName).toBe('baseline'); expect(f.options?.config?.version).toBe('market-5');
 });
-test('observe can be selected using the environment', async () => {
-  vi.stubEnv('BAZAAR_STRATEGY', 'observe'); await start(); expect(f.options?.strategyName).toBe('observe'); expect(f.options?.config?.version).toBe('observe-1');
+test('baseline can be selected using the environment', async () => {
+  vi.stubEnv('BAZAAR_STRATEGY', 'baseline'); await start(); expect(f.options?.strategyName).toBe('baseline'); expect(f.options?.config?.version).toBe('market-5');
 });
 test('strategy listing needs no endpoint, credentials, journal or socket', async () => {
   vi.stubEnv('BAZAAR_ENDPOINT', ''); vi.stubEnv('BAZAAR_TOKEN', ''); process.argv.push('--list-strategies'); await start();
-  expect(f.sockets).toHaveLength(0); expect(f.options).toBeUndefined(); expect(console.log).toHaveBeenCalledWith(expect.stringContaining('observe'));
+  expect(f.sockets).toHaveLength(0); expect(f.options).toBeUndefined(); expect(console.log).toHaveBeenCalledWith(expect.stringContaining('baseline'));
 });
 test('invalid strategy selection fails before connecting', async () => {
   process.argv.push('--strategy', 'not-registered'); await start(); expect(process.exitCode).toBe(2); expect(f.sockets).toHaveLength(0);
-  expect(printed()).toContain('[configuration] INVALID_OPTIONS: Unknown strategy. Available: baseline, observe');
+  expect(printed()).toContain('[configuration] INVALID_OPTIONS: Unknown strategy. Available: baseline');
 });
 
 const identity = (s: object) => f.options!.identity!({ run_id: 'run', self_station_id: 'P01', advertisements: { items: [] }, ...s } as unknown as Parameters<NonNullable<EngineOptions['identity']>>[0]);
