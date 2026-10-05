@@ -36,6 +36,31 @@ test('new state arriving during durable decision invalidates the old action', as
   assert.equal(commands(h.sent).length, 0);
   assert.equal(h.e.state.snapshot?.phase, 3);
 });
+async function pausedDecision(next: (initial: Snapshot) => Snapshot) {
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const reached = new Promise<void>(resolve => { entered = resolve; });
+  let paused = false;
+  const h = harness(async entry => { if (entry.kind === 'decision' && !paused) { paused = true; entered(); await gate; } });
+  const initial = snapshot(); initial.offers.items = [offer()];
+  const running = h.ready(initial); await reached;
+  h.receive({ state: next(initial) });
+  release(); await running;
+  return h;
+}
+test('market chatter during the durable decision does not discard the action', async () => {
+  const h = await pausedDecision(initial => ({ ...snapshot({ snapshot_sequence: 2n, world_version: 2n }), offers: initial.offers,
+    advertisements: { items: [{ advertisement_id: 'ad-1', station_id: 'supplier-z', status: 1, selling: { items: [1] }, seeking: { items: [] }, expires_tick: 5n }] } }));
+  assert.equal(commands(h.sent).filter(m => m.accept).length, 1);
+  assert.ok(!h.records.some(r => r.kind === 'cancelled'));
+});
+test('the offer being accepted disappearing during the durable decision cancels it visibly', async () => {
+  const h = await pausedDecision(() => snapshot({ snapshot_sequence: 2n, world_version: 2n }));
+  assert.equal(h.sent.filter(m => m.accept).length, 0);
+  const decision = h.records.find(r => r.kind === 'decision' && r.requestId);
+  assert.ok(decision);
+  assert.ok(h.records.some(r => r.kind === 'cancelled' && r.requestId === decision.requestId));
+});
 test('new observation during command preparation cancels the unsent command', async () => {
   let h: ReturnType<typeof harness>;
   h = harness(async entry => { if (entry.kind === 'command') h.receive({ state: snapshot({ snapshot_sequence: 2n, phase: 3 }) }); });

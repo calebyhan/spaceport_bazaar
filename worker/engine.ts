@@ -12,12 +12,16 @@ import { deriveMarketEvents, summarizeTick } from './analysis';
 import { max } from './domain';
 import { controlFailure, diagnose, failure, type Diagnosis } from './diagnostics';
 import { Lifecycle, phaseNames, staleAfterMs, steadyState, type LifecycleChange } from './lifecycle';
+import type { Controls } from './controls';
+import { stillCurrent } from './freshness';
 export interface Transport { send(bytes: Uint8Array): void; close(): void }
 export interface EngineOptions {
   sink: Sink; config?: Config; exercise?: boolean; previous?: RecordEntry[];
   strategyName?: string; strategy?: Evaluate; decisionTimeoutMs?: number; responseTimeoutMs?: number;
   identity?: (s: Snapshot) => void; done?: () => void; fatal?: (diagnosis: Diagnosis) => void;
   lifecycle?: (change: LifecycleChange) => void;
+  // The operator's live switches, read afresh before every policy decision.
+  controls?: () => Controls;
 }
 const persistenceFailure: Diagnosis = { category: 'application', code: 'PERSISTENCE_FAILED', message: 'A journal or database write failed, so trading stopped before sending anything unrecorded',
   hint: 'Check disk space and permissions for BAZAAR_JOURNAL_DIR (or the Supabase mirror); keep the journal, which holds unresolved commands for recovery.' };
@@ -379,7 +383,7 @@ export class Engine {
           this.strategyBusy = true;
           this.setActivity('deciding', 'Evaluating the latest state');
           try {
-            const measured = await (this.options.strategy ?? this.executor.evaluate)({ snapshot: current, pending: this.state.pending, memory: this.memory, config: this.config }, this.decisionTimeoutMs, startedAt => {
+            const measured = await (this.options.strategy ?? this.executor.evaluate)({ snapshot: current, pending: this.state.pending, memory: this.memory, config: this.config, controls: this.options.controls?.() }, this.decisionTimeoutMs, startedAt => {
               this.record({ kind: 'responsiveness', payload: { metric: 'queue', duration_ms: Math.max(0, startedAt - queuedAt), snapshot_sequence: current.snapshot_sequence.toString() } satisfies ResponsivenessSample });
             });
             decision = measured.decision;
@@ -415,13 +419,16 @@ export class Engine {
         if (action.kind === 'wait') { this.setActivity('waiting', decision?.explanation.rationale ?? 'Waiting for validator gift'); continue; }
         // Persistence is asynchronous. New observations continue replacing facts
         // while it runs; never transmit a decision made against older facts.
-        if (current !== this.state.snapshot || epoch !== this.state.epoch || revision !== this.state.revision || !this.ready) { this.dirty = true; continue; }
+        if (this.superseded(action, current, epoch, revision)) {
+          this.record({ kind: 'cancelled', requestId, payload: { reason: 'Facts changed while the decision was recorded', stage: 'decision' } });
+          this.dirty = true; continue;
+        }
         const pending: Pending = { requestId: requestId!, action, tick: current.tick };
         const bytes = this.commandBytes(current, pending);
         if (BigInt(bytes.length) > current.rules.max_command_bytes || bytes.length > 16384) throw failure('application', 'COMMAND_TOO_LARGE', 'The strategy produced a command larger than the server allows', 'Inspect the decision record; the command was not sent.');
         await this.record({ kind: 'command', direction: 'outbound', requestId: pending.requestId, payload: { ...pending, run: current.run_id, epoch, raw: Buffer.from(bytes).toString('base64'), byteLength: bytes.length } });
         await new Promise<void>(resolve => setImmediate(resolve));
-        if (current !== this.state.snapshot || epoch !== this.state.epoch || revision !== this.state.revision || !this.ready || this.stopped) {
+        if (this.stopped || this.superseded(action, current, epoch, revision)) {
           await this.record({ kind: 'cancelled', requestId: pending.requestId, payload: { reason: 'New observation before transmission' } });
           this.dirty = true; continue;
         }
@@ -450,6 +457,12 @@ export class Engine {
         if (BigInt(this.state.pending.length) < inFlight) this.dirty = true;
       }
     } finally { this.cycling = false; }
+  }
+  // Persistence is asynchronous and the market keeps producing snapshots while
+  // it runs. A decision survives only if the facts it relied on are unchanged;
+  // see stillCurrent. A new connection or command result always supersedes it.
+  private superseded(action: Action, decided: Snapshot, epoch: number, revision: number) {
+    return epoch !== this.state.epoch || revision !== this.state.revision || !this.ready || !stillCurrent(action, decided, this.state.snapshot);
   }
   private commandBytes(s: Snapshot, p: Pending) {
     return encode({ [p.action.kind]: { type: 1, protocol_version: '2.0', run_id: s.run_id, request_id: p.requestId, body: (p.action as Command).body } });

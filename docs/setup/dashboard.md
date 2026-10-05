@@ -22,6 +22,13 @@ journal and picks up a new run within a second. With several workers (one per
 planet in a [local simulation](../reference/simulator.md)) a row of buttons
 chooses one. With none, it shows the most recent run.
 
+The **generous mode** switch at the top of `/live` changes how the running
+worker trades from its next decision onward; see
+[generous mode](../operations/strategies.md#generous-mode-a-live-switch). It
+writes `.local/controls.json` (or `BAZAAR_CONTROL_FILE`), so the dashboard and
+worker must share a machine. The dashboard has no login, so keep it on
+localhost.
+
 <http://localhost:3000/runs> lists every journal with its result, health,
 ticks, trades, rejections, disconnects and response time. A run's page has:
 
@@ -38,6 +45,12 @@ text as `npm run journal:trace`. These pages use the
 [journal tools](../operations/journal-tools.md)' readers, so their numbers match
 the CLI. A journal is read once and then only its new lines, so refreshing a
 long run stays cheap.
+
+Once a journal has been quiet for a few seconds and has a snapshot, its report is
+saved beside it as `<journal>.report.json`, so a server restart does not parse
+hundreds of megabytes again. The copy is used only while the journal's size and
+modification time are unchanged, so it can be deleted at any time. A journal that
+is still being written is never cached.
 
 Journals are found under `.local` (up to six folders deep), which covers
 `.local/journal`, simulator `journal-P0n` folders and tournament

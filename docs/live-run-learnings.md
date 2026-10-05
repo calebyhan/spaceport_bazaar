@@ -1,7 +1,7 @@
 ---
 title: "Live Run Learnings"
 status: "Postmortems and standing lessons"
-last_updated: "2026-09-24"
+last_updated: "2026-10-05"
 ---
 
 # Live Run Learnings
@@ -156,6 +156,46 @@ records, and a client keepalive ping.
 offering P08 6 water per tick in ticks 15–31. Whether P08 would have accepted
 6-unit lots is unknown; it did accept 5-for-6 and 6-for-6 early in the run.
 
+## Run-52: a backed-up journal discarded every decision
+
+**What happened (observed).**
+
+- Policy `market-5`, station P09, specialty water. We sent **0 commands** in
+  the whole run. The engine made 6 decisions (3 accepts) and none reached the
+  socket.
+- Food and components ran out at tick 30; health was 0 by tick 101 with 360
+  water in stock. No `command`, `sent` or `result` record exists.
+- The journal fell behind real time: records were written about 75 s after
+  they were made, and one wait for the decision to be recorded lasted 67 s.
+  Writes landed at about 4.3 records a second against about 5.6 arriving.
+- Runs 48 and 50 had the same snapshot rate (8.2 and 4.5 a tick) with waits
+  of 1–2 ms, and sent 300 and 171 commands.
+
+**Why.**
+
+- **Decisions waited behind the journal.** Every record, including the large
+  `state` and `raw` ones (5–7 KB each), was fsynced one at a time, and a
+  decision is sent only after everything queued before it is written.
+- **Any newer snapshot discarded the decision.** The market changes several
+  times a tick, so by the time the decision was recorded a newer snapshot
+  existed (31 ms, 4.2 s and 39 ms later in the three accepts). The engine
+  dropped the action without a journal record and decided again, into the same
+  backlog.
+- *Inferred:* the host's fsync was far slower than usual. Nothing in the
+  journal shows why; the same code was fast in runs 48 and 50, and this
+  container measures 0.1 ms per fsync.
+
+**Changes.**
+
+- The journal fsyncs a `command` record (covering everything before it), then
+  flushes the rest once a second and on close, instead of fsyncing every
+  record.
+- A decision is dropped only if the facts it relied on changed: stock, our own
+  open offers and advertisements, the tick, or the offer it targets (see
+  `worker/freshness.ts`). Other market changes no longer cancel it.
+- A decision dropped before its command is recorded now writes a `cancelled`
+  record, so the run report counts it.
+
 ## Lessons that held across runs
 
 1. **One resource becomes scarce for the whole market every run.** Food in
@@ -180,6 +220,9 @@ offering P08 6 water per tick in ticks 15–31. Whether P08 would have accepted
    results, and size offer lifetimes to the observed lag.
 8. **Survival is a filter, not the reason to trade.** Refusing value because
    it doesn't change a doomed forecast (run-37, tick 46) throws away options.
+9. **Nothing may wait on a disk.** A slow journal write must never delay or
+   cancel a decision (run-52). Check `persisting` activity times and
+   `cancelled` counts first when a run makes no trades.
 
 ## Standing decisions
 

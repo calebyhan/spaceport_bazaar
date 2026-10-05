@@ -58,6 +58,11 @@ function runIdOf(entries: RecordEntry[]): string | undefined {
   }
   return undefined;
 }
+// A command is recorded durably before it is sent, so recovery after a crash
+// can tell what may have reached the server. Everything else is flushed in
+// the background and when the journal closes.
+const SYNC_KINDS = new Set(['command']);
+const FLUSH_INTERVAL_MS = 1000;
 // One journal file per run, so a run's raw log stays a self-contained,
 // independently reviewable artifact instead of an ever-growing file shared
 // by every run the process has ever handled. A run still resumes into its
@@ -70,6 +75,8 @@ export class Journal implements Sink {
   private fd?: number;
   private path?: string;
   private readonly pending: RecordEntry[] = [];
+  private unsynced = false;
+  private timer?: NodeJS.Timeout;
   private readonly candidate?: { path: string; runId?: string };
   readonly previous: RecordEntry[];
   constructor(private readonly dir: string) {
@@ -98,6 +105,8 @@ export class Journal implements Sink {
     const directory = openSync(this.dir, 'r');
     try { fsyncSync(directory); } finally { closeSync(directory); }
     for (const entry of this.pending.splice(0)) this.write(entry);
+    this.timer = setInterval(() => this.flush(), FLUSH_INTERVAL_MS);
+    this.timer.unref();
   }
   async append(entry: RecordEntry) {
     // Buffer anything recorded before the run's identity is known (e.g. the
@@ -111,7 +120,17 @@ export class Journal implements Sink {
     const bytes = Buffer.from(json({ at: new Date().toISOString(), ...entry }) + '\n');
     let offset = 0;
     while (offset < bytes.length) offset += writeSync(this.fd!, bytes, offset, bytes.length - offset);
-    fsyncSync(this.fd!);
+    // A write reaches the OS, so it survives a crash of this process. Forcing
+    // it to disk costs milliseconds to hundreds of them depending on the
+    // filesystem, and every record waits behind the one before it, so a slow
+    // disk would delay the next decision indefinitely. Sync only where a
+    // record guards an action; fsync covers everything written before it.
+    if (SYNC_KINDS.has(entry.kind)) { fsyncSync(this.fd!); this.unsynced = false; } else this.unsynced = true;
+  }
+  private flush() {
+    if (this.fd === undefined || !this.unsynced) return;
+    this.unsynced = false;
+    try { fsyncSync(this.fd); } catch { this.unsynced = true; }
   }
   close() {
     // The run never reached an identified connection (e.g. it could never
@@ -120,7 +139,8 @@ export class Journal implements Sink {
       this.path = join(this.dir, `${timestampForFilename()}-unidentified.jsonl`);
       this.open();
     }
-    if (this.fd !== undefined) closeSync(this.fd);
+    if (this.timer) clearInterval(this.timer);
+    if (this.fd !== undefined) { fsyncSync(this.fd); closeSync(this.fd); }
   }
 }
 export class SupabaseSink implements Sink {

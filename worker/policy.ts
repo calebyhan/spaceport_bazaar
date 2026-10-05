@@ -1,5 +1,5 @@
-import { type Action, type Bundle, type Command, type Snapshot, type Pending, type Memory, type Config, resources } from './types';
-import { active, add, type Forecast, forecast, liabilityTotal, liabilities, mapBundle, max, min, productionEstimate, reserve, spendable, total, tradeSafety } from './domain';
+import { type Action, type Bundle, type Command, type Snapshot, type Pending, type Memory, type Config, type Resource, resources } from './types';
+import { active, add, type Forecast, forecast, liabilityTotal, liabilities, mapBundle, max, min, productionEstimate, reserve, spendable, subtract, total, tradeSafety, zero } from './domain';
 import { askTerms, canPay, observeMarket, plan, resourceNumber, worth } from './market';
 import { json } from './serialization';
 export { json } from './serialization';
@@ -22,9 +22,18 @@ export function capacity(s: Snapshot, pending: Pending[], urgent: boolean): bool
 // Value differences smaller than this are rounding noise, not a reason to trade.
 const EPSILON = 0.01;
 const milli = (v: number) => BigInt(Math.round(v * 1000));
-// Tie-break order among otherwise equal outcomes.
-const Kind = { withdraw: 3n, gift: 2n, exchange: 1n, offer: 0n, advertise: -1n, wait: -2n } as const;
-export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: Config) {
+// Tie-break order among otherwise equal outcomes. A helping accept ties with
+// an offer, so any offer of real value to us still ranks first; a giveaway
+// ranks below everything but waiting, so it only uses spare commands.
+const Kind = { withdraw: 6n, gift: 4n, exchange: 2n, offer: 0n, help: 0n, advertise: -2n, giveaway: -3n, wait: -4n } as const;
+// Generous mode at most keeps this many giveaways open, one per station.
+const MAX_OPEN_GIFTS = 2;
+// Generous trading asks only at par; accepts safe par offers paid from
+// whole-run spare that do not raise our plan value; and gives true surplus
+// away free to stations that seek it. Every trade stays at or above par.
+export interface Leniency { generous?: boolean }
+export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: Config, { generous = false }: Leniency = {}) {
+  if (generous) config = { ...config, maxPremiumPct: 0n };
   const stock = spendable(s, pending), safety = reserve(s, config);
   const base = forecast(s, stock);
   const commitments = liabilities(s, pending);
@@ -32,7 +41,7 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
   const p = plan(s, stock, market, config);
   // Why each open inbound offer was or was not taken, for per-offer audits.
   const inbound: Record<string, { verdict: 'accept' | 'pass'; reason: string; value?: number }> = {};
-  const explanation = { policyVersion: config.version, config, input: { run: s.run_id, sequence: s.snapshot_sequence, version: s.world_version, tick: s.tick }, commitments, reserve: safety, forecast: base, plan: p, market, inbound, rationale: '' };
+  const explanation = { policyVersion: config.version, config, generous, input: { run: s.run_id, sequence: s.snapshot_sequence, version: s.world_version, tick: s.tick }, commitments, reserve: safety, forecast: base, plan: p, market, inbound, rationale: '' };
   const wait = (reason: string) => ({ action: { kind: 'wait' } as Action, nextMemory: memory, explanation: { ...explanation, rationale: reason } });
   if (s.phase !== 2 || s.self.failed_once || s.self.health === 0n || s.tick >= s.rules.duration_ticks) return wait('Phase or permanent failure prohibits trading.');
   if (BigInt(pending.length) >= config.maxInFlight) return wait('Every in-flight slot awaits an authoritative result.');
@@ -72,14 +81,22 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
     const pay = o.receive, gain = o.give;
     const pass = (reason: string, value?: number) => { inbound[o.offer_id] = { verdict: 'pass', reason, value }; };
     if (total(gain) < total(pay)) { pass('below par: we would receive fewer units than we give'); continue; }
+    const gift = total(pay) === 0n;
+    // Free units we have no room for only tie up a command slot. Stock under
+    // urgentTicks of upkeep is always worth topping up: the plan counts on
+    // production that may not come.
+    const needed = (r: Resource) => p.room[r] > 0n || stock[r] < s.self.upkeep_per_tick[r] * config.urgentTicks;
+    if (gift && !resources.some(r => gain[r] > 0n && needed(r))) { pass('a gift of nothing our plan still needs'); continue; }
     const gained = worth(gain, p) - worth(pay, p);
-    if (gained <= EPSILON) { pass('no value gain at current plan values', gained); continue; }
+    const helping = gained <= EPSILON;
+    if (helping && !generous) { pass('no value gain at current plan values', gained); continue; }
     const check = tradeSafety(s, pending, pay, gain, config);
     if (!check.safe) { pass(check.belowReserve ? 'unsafe: we are below reserve and it would lower forecast health' : 'unsafe: it would breach the reserve or bring failure earlier', gained); continue; }
     if (!canPay(p, stock, pay, gain)) { pass('pays with resources the plan cannot spare', gained); continue; }
-    const gift = total(pay) === 0n;
-    pass(addCandidate({ kind: 'accept', body: { offer_id: o.offer_id } }, check.after, gained, gift ? Kind.gift : Kind.exchange, 0n, 0,
-      gift ? 'Accept a safe inbound gift.' : `Accept an at-or-above-par exchange worth ${gained.toFixed(2)} to us.`) ?? 'safe and valuable, but ranked below the chosen action', gained);
+    // A helping accept realizes nothing for us, so it never outranks value.
+    pass(addCandidate({ kind: 'accept', body: { offer_id: o.offer_id } }, check.after, helping ? 0 : gained, gift ? Kind.gift : helping ? Kind.help : Kind.exchange, 0n, 0,
+      gift ? 'Accept a safe inbound gift.' : helping ? `Accept a safe par exchange paid from spare stock; it helps the proposer (worth ${gained.toFixed(2)} to us).`
+        : `Accept an at-or-above-par exchange worth ${gained.toFixed(2)} to us.`) ?? (helping ? 'safe and helpful, but ranked below the chosen action' : 'safe and valuable, but ranked below the chosen action'), gained);
   }
 
   // Propose to every station with evidence it supplies what we want, paying
@@ -106,6 +123,31 @@ export function decide(s: Snapshot, pending: Pending[], memory: Memory, config: 
           addCandidate(action, base, 0, Kind.offer, BigInt(station.gives[gain]), terms.value,
             `Offer ${terms.give[pay]} ${pay} for ${terms.receive[gain]} ${gain} to ${station.id} at ${terms.premium}% premium (${terms.misses} unanswered); safe at every settlement tick, receipt unguaranteed.`);
         }
+      }
+    }
+  }
+
+  // Giveaways: only once the plan is fully covered, with nothing left to
+  // acquire. Before that our surplus is the currency we buy needs with: in
+  // simulation, free water to stations that sold us components starved us of
+  // components. Then whole-run spare beyond a stockpile buffer goes, in small
+  // lots, to stations that seek it and that we are not already gifting; a
+  // station whose wants are unknown gets nothing. Ranked by the worst case,
+  // that it is accepted, and weakest-looking (most needs) first.
+  if (generous && resources.every(r => p.room[r] === 0n) && BigInt(commitments.length) < openLimit && expiry > s.tick) {
+    const gifting = new Set([
+      ...s.offers.items.filter(o => o.proposer_id === s.self_station_id && active(o.status, o.expires_tick, s.tick)),
+      ...pending.flatMap(q => q.action.kind === 'offer' ? [q.action.body] : []),
+    ].filter(o => total(o.receive) === 0n).map(o => o.recipient_id));
+    for (const station of gifting.size < MAX_OPEN_GIFTS ? market.stations : []) {
+      if (gifting.has(station.id)) continue;
+      for (const r of station.wants) {
+        const amount = min(config.lot, p.sellable[r] - max(1n, s.self.upkeep_per_tick[r]) * config.stockpileTicks);
+        if (amount <= 0n) continue;
+        const give = mapBundle(x => x === r ? amount : 0n);
+        if (!outgoingSafe(s, pending, give, zero(), expiry, config)) continue;
+        addCandidate({ kind: 'offer', body: { recipient_id: station.id, give, receive: zero(), expires_tick: expiry } }, forecast(s, subtract(stock, give)), 0, Kind.giveaway, BigInt(station.wants.length), 0,
+          `Give ${amount} ${r} free to ${station.id}, which seeks it: surplus beyond our whole-run needs and buffer.`);
       }
     }
   }

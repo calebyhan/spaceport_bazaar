@@ -118,6 +118,12 @@ summary { cursor: pointer; color: var(--accent); }
 .picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
 .picker a { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); text-decoration: none; font-size: .8rem; }
 .picker a[aria-current="page"] { border-color: var(--accent); color: var(--ink); }
+.control { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; margin-bottom: 24px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.control > div { flex: 1 1 260px; }
+.control.on { border-color: var(--accent); }
+.control button { padding: 8px 14px; border: 1px solid var(--accent); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer; }
+.control.on button { background: var(--accent); color: var(--deep); }
+.control button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .trace pre { margin: 18px 0 0; padding: 16px; overflow-x: auto; border-radius: 10px; background: #0b1924; font-size: .8rem; line-height: 1.5; }
 .downloads { margin-top: 24px; color: var(--muted); }
 

@@ -126,7 +126,10 @@ deterministic and replayable without extra policy memory.
 
 **Price floor.** We never receive fewer units than we give: every accepted
 bundle and every proposal is at par or better for us. There are no outbound
-gifts. Inbound gifts are accepted when safe.
+gifts, except surplus giveaways in [generous mode](strategies.md#generous-mode-a-live-switch).
+Inbound gifts are accepted only when safe and when they bring a resource the
+plan still has room for, or one we hold less than `urgentTicks` of upkeep of;
+a gift of nothing we need is passed.
 
 **Counterparty model.** For each station, the model collects the evidence that
 it can supply each resource. From weakest to strongest: it advertised the
@@ -355,7 +358,13 @@ This is a conservative availability limitation. Do not delete the journal to
 bypass unresolved commands; investigate the authoritative run and retain its
 original command identity.
 
-The local journal is appended and fsynced before a command is sent. If local
+The local journal is appended and fsynced before a command is sent. Other
+records are written at once but fsynced in the background (every second and on
+close), so a slow disk cannot hold up decisions; a crash of the process loses
+nothing, and an OS crash can lose up to a second of non-command records. A
+decision is discarded before sending only if the facts it relied on changed
+(stock, our open offers and advertisements, the tick, the target offer), and
+the discard is journaled as `cancelled`. If local
 persistence or the explicitly enabled Supabase mirror fails, the worker stops
 trading; the journal retains prepared or uncertain commands for reconciliation.
 A torn journal is rejected, not silently truncated. A disk-full or broken

@@ -5,8 +5,8 @@ import { archetype, archetypes } from './archetypes';
 
 const strategies = {
   baseline: {
-    name: 'baseline', version: defaultConfig.version, description: 'Reserve-preserving trading policy.',
-    decide: (({ snapshot, pending, memory, config }) => decide(snapshot, pending, memory, config)) satisfies Policy,
+    name: 'baseline', version: defaultConfig.version, description: 'Reserve-preserving trading policy; honours the live generous switch.',
+    decide: (({ snapshot, pending, memory, config, controls }) => decide(snapshot, pending, memory, config, { generous: controls?.generous })) satisfies Policy,
   },
   observe: {
     name: 'observe', version: 'observe-1', description: 'Observe updates and intentionally make no trades.',

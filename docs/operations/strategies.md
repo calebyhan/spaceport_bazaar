@@ -28,6 +28,41 @@ npm run worker -- --list-strategies
 | `observe` | Always returns an intentional `wait`. Useful for observing a run without submitting trades. It still performs protocol readiness and recovery. |
 | `par`, `greedy`, `passive` | Simple simulation opponents (1:1 trader, 2:1 trader, accept-only). See the [tournament](../reference/tournament.md); not meant for class runs. |
 
+## Generous mode: a live switch
+
+The baseline has a generous mode you can turn on and off **while the worker
+runs**, from the switch at the top of the dashboard's
+[live view](../setup/dashboard.md). It takes effect from the worker's next
+decision; no restart is needed. While it is on, the baseline:
+
+- asks only at par (1:1) instead of opening at a premium;
+- also accepts safe par offers that it pays for from whole-run spare stock,
+  even when they do not raise our plan value. The proposer gains; we give up
+  units we will never need; and
+- gives surplus away free, once the plan is fully covered (nothing left to
+  acquire). It offers whole-run spare beyond a buffer of `stockpileTicks` of
+  upkeep, at most `lot` units at a time, only to stations that seek that
+  resource, with at most one open gift per station and two in total.
+
+Every trade stays at or above par, and every reserve and safety check still
+applies. Our own trades rank ahead of helping accepts, and both rank ahead of
+giveaways, so a gift only uses a command nothing else needs. Each decision's
+explanation in the journal records `generous: true|false`.
+
+Giveaways wait for full cover because, before that, surplus is the currency
+we buy our needs with. In simulation, giving water to the stations that sold
+us components left us short of components; with the full-cover rule
+generous mode lost no health in 6- and 9-planet tournaments. It does end a
+mixed-field run with far fewer resources (about 63 against baseline's 270),
+which matters if prizes go to the largest stock.
+
+The switch is a small JSON file, `.local/controls.json` by default
+(`{"generous":true}`). The dashboard replaces it atomically and the worker
+reads it before every decision. A missing or unreadable file means off. Set
+`BAZAAR_CONTROL_FILE` to the same path for both if you move it. Only the
+baseline reads it; `observe` and the simulation opponents ignore it, and
+simulation and tournament workers are never wired to it.
+
 Choose using the CLI:
 
 ```sh

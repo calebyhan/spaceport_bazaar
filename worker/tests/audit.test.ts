@@ -168,6 +168,21 @@ test('long verdict histories are truncated with a count', () => {
   expect(builder.trace({ offer: 'gift' }).verdicts.at(-2)).toMatchObject({ verdict: 'not evaluated', reason: 'the strategy stopped before evaluating offers: early wait' });
 });
 
+test('decisions give verdicts only to open, unexpired offers addressed to us', () => {
+  const builder = new TraceBuilder();
+  builder.add(journaled({ kind: 'state', payload: state(1, 2, s => {
+    s.offers.items = [
+      offer({ offer_id: 'open', expires_tick: 5n }),
+      offer({ offer_id: 'outgoing', proposer_id: 'ours', recipient_id: 'supplier-z', expires_tick: 5n }),
+      offer({ offer_id: 'closed', status: 3, expires_tick: 5n }),
+      offer({ offer_id: 'expired', expires_tick: 2n }),
+    ];
+  }) }));
+  builder.add(journaled({ kind: 'decision', payload: { action: { kind: 'wait' }, explanation: { rationale: 'wait', inbound: {} } } }));
+  expect(builder.trace({ offer: 'open' }).verdicts).toHaveLength(1);
+  for (const id of ['outgoing', 'closed', 'expired']) expect(builder.trace({ offer: id }).verdicts, id).toEqual([]);
+});
+
 test('a settlement already visible in the first recorded snapshot has no earlier inventory', () => {
   const builder = new TraceBuilder();
   builder.add(journaled({ kind: 'state', payload: settledState(1, 1, 2) }));

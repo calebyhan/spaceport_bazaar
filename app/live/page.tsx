@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AutoRefresh } from "@/app/_components/auto-refresh";
+import { GenerousSwitch } from "@/app/_components/generous-switch";
 import { RunBody, RunHeader, runHref } from "@/app/_components/run-view";
 import { activeJournals, listJournals, tryLoadRun } from "@/lib/journals";
 
@@ -18,6 +19,7 @@ export default async function LivePage({ searchParams }: { searchParams: Search 
     return (
       <main>
         <AutoRefresh intervalMs={1000} />
+        <GenerousSwitch />
         <header className="hero">
           <p className="eyebrow">Live run</p>
           <h1>Waiting for a worker</h1>
@@ -30,6 +32,7 @@ export default async function LivePage({ searchParams }: { searchParams: Search 
   return (
     <main>
       <AutoRefresh intervalMs={1000} />
+      <GenerousSwitch />
       {active.length > 1 ? (
         <nav className="picker" aria-label="Active workers">
           {active.map(f => <Link key={f.id} href={`/live?run=${encodeURIComponent(f.id)}`} aria-current={f === file ? "page" : undefined}>{f.id}</Link>)}

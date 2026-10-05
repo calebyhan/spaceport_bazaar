@@ -1,6 +1,6 @@
 import "server-only";
 
-import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
 import { readJournal, type Entry } from "@/worker/audit/journal";
@@ -12,14 +12,18 @@ import { formatTrace, TraceBuilder } from "@/worker/audit/trace";
 // visible live and afterwards with no database. Every worker, simulator and
 // tournament journal lives somewhere under one root (default `.local`).
 export type JournalFile = { id: string; path: string; size: number; modifiedAt: number };
+// `status` is absent for a run restored from its cached report: it describes
+// a live worker, and only a run that is no longer writing is ever cached.
 export type RunView = {
-  file: JournalFile; status: StatusView; report: RunReport;
+  file: JournalFile; status?: StatusView; report: RunReport;
   live: boolean; entries: number; tornTail: boolean; startedAt: number;
 };
 
 const MAX_DEPTH = 6;
 const CHUNK_BYTES = 4 << 20;
 const CACHE_LIMIT = 64;
+// Bump when RunReport changes shape, so reports cached by an older build are rebuilt.
+const REPORT_CACHE_VERSION = 1;
 
 export function journalRoot(): string {
   return resolve(process.env.BAZAAR_JOURNAL_ROOT || ".local");
@@ -111,13 +115,40 @@ export function findJournal(id: string, files = listJournals()): JournalFile | u
   return files.find(file => file.id === id);
 }
 
+// A journal that has stopped growing never changes, yet reading it back costs
+// seconds per hundred megabytes. Its report is cached next to it, valid for
+// exactly the size and modification time it was built from.
+const cachePath = (file: JournalFile) => `${file.path}.report.json`;
+
+function readCachedRun(file: JournalFile): RunView | undefined {
+  try {
+    const cached = JSON.parse(readFileSync(cachePath(file), "utf8"));
+    if (cached.version !== REPORT_CACHE_VERSION || cached.size !== file.size || cached.modifiedAt !== file.modifiedAt) return undefined;
+    return { file, report: cached.report, live: false, entries: cached.entries, tornTail: cached.tornTail, startedAt: startedAt(file) };
+  } catch { return undefined; }
+}
+
+function writeCachedRun(run: RunView) {
+  const path = cachePath(run.file), temporary = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify({ version: REPORT_CACHE_VERSION, size: run.file.size, modifiedAt: run.file.modifiedAt,
+      report: run.report, entries: run.entries, tornTail: run.tornTail }));
+    renameSync(temporary, path);
+  } catch { /* A read-only root only costs the speed-up. */ }
+}
+
 export function loadRun(file: JournalFile, now = new Date()): RunView {
+  const quiet = now.getTime() - file.modifiedAt > SILENT_AFTER_MS;
+  const cached = quiet ? readCachedRun(file) : undefined;
+  if (cached) return cached;
   const tail = follow(file);
   const status = tail.status.view(now);
-  return {
+  const run: RunView = {
     file, status, report: tail.report.report(), live: status.worker === "running",
     entries: tail.entries, tornTail: tail.rest.length > 0 || tail.suspect !== undefined, startedAt: startedAt(file),
   };
+  if (quiet && !run.live && run.report.outcome) writeCachedRun(run);
+  return run;
 }
 
 export type LoadedRun = { run: RunView; error?: undefined } | { run?: undefined; error: string };

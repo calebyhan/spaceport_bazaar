@@ -106,6 +106,8 @@ test('environment, credential selection, mirror and policy overrides flow into e
   expect(f.journalAppend).toHaveBeenCalledOnce(); expect(f.mirrorAppend).toHaveBeenCalledOnce();
   f.options!.sink.resolve!('run', 'P01'); expect(f.journalResolve).toHaveBeenCalledWith('run', 'P01');
   f.options!.identity!({ run_id: 'run', self_station_id: 'P01', advertisements: { items: [] } } as unknown as Parameters<NonNullable<EngineOptions['identity']>>[0]);
+  f.read.mockReturnValueOnce('{"generous":true}');
+  expect(f.options!.controls!()).toEqual({ generous: true });
   f.options!.done!(); f.options!.done!();
   expect(f.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'manifest' }));
   expect(f.unlock).toHaveBeenCalledTimes(3); expect(f.journalClose).toHaveBeenCalledOnce(); expect(process.exitCode).toBe(0);

@@ -78,7 +78,7 @@ export function RunHeader({ run, eyebrow }: { run: RunView; eyebrow: string }) {
 
 // What the worker is doing right now, from the newest records.
 export function LiveStatus({ run }: { run: RunView }) {
-  const v = run.status, c = v.connection;
+  const v = run.status!, c = v.connection;
   return (
     <Panel label="Right now" title="Live operating picture" className="live">
       <dl className="facts">

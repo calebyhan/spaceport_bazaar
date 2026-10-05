@@ -7,6 +7,7 @@ import { acquireLock, Journal, SupabaseSink, type Sink } from './persistence';
 import { workerOptions } from './options';
 import { listStrategies } from './strategies';
 import { defaultConfig } from './types';
+import { controlFile, readControls } from './controls';
 import { diagnose, exitCodes, failure, formatDiagnosis, handshakeRejected, socketError, type Diagnosis } from './diagnostics';
 import { formatLifecycle } from './lifecycle';
 
@@ -143,6 +144,7 @@ async function main() {
     done: () => finish(true),
     fatal: diagnosis => { void engine.idle().then(() => finish(false, diagnosis)).catch(() => finish(false, diagnosis)); },
     lifecycle: change => console.log(formatLifecycle(change)),
+    controls: () => readControls(controlFile()),
   });
   const connect = () => {
     if (closed) return;

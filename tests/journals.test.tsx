@@ -4,6 +4,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 vi.mock('server-only', () => ({}));
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }), notFound: () => { throw new Error('NEXT_HTTP_ERROR_FALLBACK;404'); } }));
 import { NextRequest } from 'next/server';
 import { activeJournals, findJournal, journalRoot, listJournals, loadRun, startedAt, traceRun, tryLoadRun, type RunView } from '../lib/journals';
@@ -13,6 +14,9 @@ import LivePage from '../app/live/page';
 import RunsPage from '../app/runs/page';
 import RunPage from '../app/runs/[...id]/page';
 import { GET } from '../app/api/runs/report/route';
+import { setGenerous } from '../app/live/actions';
+import { revalidatePath } from 'next/cache';
+import { readControls } from '../worker/controls';
 import { entries } from '../worker/tests/journal-fixture';
 
 // A finished run (the audit tests' hand-written journal), and the same run
@@ -23,7 +27,7 @@ const running = () => lines(entries.filter(e => e.kind !== 'run-summary' && !(e.
   .map(e => ({ ...e, at: new Date().toISOString() })));
 const name = (station: string) => `2026-09-29T12-00-00-000Z-${station}-test-run.jsonl`;
 let root: string;
-beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'journals-')); vi.stubEnv('BAZAAR_JOURNAL_ROOT', root); });
+beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'journals-')); vi.stubEnv('BAZAAR_JOURNAL_ROOT', root); vi.stubEnv('BAZAAR_CONTROL_FILE', join(root, 'controls.json')); });
 afterEach(() => { rmSync(root, { recursive: true, force: true }); vi.unstubAllEnvs(); });
 function put(id: string, text: string, ageSeconds = 0) {
   const path = join(root, id);
@@ -119,6 +123,18 @@ test('the live page waits for a first journal', async () => {
   expect(page).toContain('Waiting for a worker'); expect(page).toContain('Live · updates every 1 s');
 });
 
+test('the live page toggles generous mode through the control file the worker reads', async () => {
+  const off = await html(LivePage({ searchParams: Promise.resolve({}) }));
+  expect(off).toContain('Generous mode · Off'); expect(off).toContain('value="on"'); expect(off).toContain('Turn on');
+  const form = new FormData(); form.set('generous', 'on');
+  await setGenerous(form);
+  expect(readControls()).toEqual({ generous: true }); expect(revalidatePath).toHaveBeenCalledWith('/live');
+  const on = await html(LivePage({ searchParams: Promise.resolve({}) }));
+  expect(on).toContain('Generous mode · On'); expect(on).toContain('value="off"'); expect(on).toContain('aria-pressed="true"');
+  form.set('generous', 'off'); await setGenerous(form);
+  expect(readControls()).toEqual({ generous: false });
+});
+
 test('the live page shows the most recent run when no worker is writing', async () => {
   put(name('P01'), finished, 60);
   const page = await html(LivePage({ searchParams: Promise.resolve({}) }));
@@ -193,9 +209,10 @@ test('the report downloads as Markdown or JSON', async () => {
 });
 
 // Variants of one loaded run for the branches a single journal cannot reach.
-function variant(change: (run: RunView) => void): RunView {
+// The file is fresh, so it is read, never restored from a cached report, and keeps its status.
+function variant(change: (run: RunView & { status: NonNullable<RunView['status']> }) => void): RunView {
   put(`v/${name('P01')}`, finished);
-  const run = structuredClone(load(`v/${name('P01')}`));
+  const run = structuredClone(load(`v/${name('P01')}`)) as RunView & { status: NonNullable<RunView['status']> };
   change(run);
   return run;
 }
