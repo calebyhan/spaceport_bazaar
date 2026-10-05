@@ -10,6 +10,7 @@
 ## Operations and development
 
 - [Strategy selection and offline checks](operations/strategies.md): configure a policy, check a JSON state/offer, and replace transport or logging adapters.
+- [Nine-client class demonstration](operations/nine-clients.md): local rehearsal, nine-key setup, class25 defaults and verification.
 - [Worker operations](operations/worker.md): exercise and autonomous modes, configuration, recovery, current policy behavior and limitations.
 - [Connection lifecycle and failure diagnosis](operations/diagnostics.md): lifecycle stages, stale state, failure categories and exit codes.
 - [Journal tools](operations/journal-tools.md): live status, per-offer traces and run reports from a journal.
@@ -19,7 +20,9 @@
 
 - [Protocol and gameplay handbook](reference/protocol.md): canonical gameplay and client-design reference; live `State.rules` supplies run-specific values.
 - [Trading strategy design](reference/strategy.md): broader strategy rationale and design proposals. For implemented behavior, use worker operations.
-- [Responsiveness assessment](reference/responsiveness.md): findings and evidence for measure responsiveness.
+- [One-second survival assessment](reference/one-second-survival.md): implemented surplus policies, timing diagnosis and local results.
+- [Baseline nine-client validation](reference/baseline-class-validation.md): original 120-tick survival evidence and its limits.
+- [Responsiveness assessment](reference/responsiveness.md): timing instrumentation, independent deadlines and measured responsiveness.
 - [Local simulation server](reference/simulator.md): multi-planet test server, balanced economy, and what it does not simulate.
 - [Strategy tournament and scoring](reference/tournament.md): score catalog strategies against each other on the simulator.
 - [Self-assessment evidence](self-assessment.md): the command and expected result behind each rating in sections 1, 2 and 6.
@@ -41,7 +44,3 @@ in `setup/`, runtime procedures in `operations/`, specifications/design in
 The root README stays a short entry point. Root `AGENTS.md` and `CLAUDE.md` stay
 where coding tools discover them; the supplied artifact guide stays with its
 schema and binaries. Run `npm test` after moving documentation to check links.
-
-- [One-second survival design](reference/one-second-survival.md): timing diagnosis and proposed surplus-specific policies.
-
-- [Baseline nine-client validation](reference/baseline-class-validation.md): 120-tick, one-second, 25%-surplus survival results and class-server status.

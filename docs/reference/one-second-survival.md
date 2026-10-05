@@ -16,6 +16,7 @@ fallback, and an explicit CLI flag overrides both. Baseline remains the default.
 | Policy | Intended condition | Target / reserve / extra buffer (ticks) | Lot |
 | --- | --- | --- | --- |
 | `baseline` | Existing standard behavior | Existing whole-run needs and baseline defaults | 6 |
+| `class25` | Nine-client class demonstration at 25% surplus | Validated market-5 behavior, independent defaults, generosity off | 6 |
 | `surplus50` | 50% production surplus | 16 / 2 / 4 | 6 |
 | `surplus25` | 25% production surplus | 20 / 4 / 6 | 3 |
 | `balanced` | Just enough supply | 8 / 2 / 0 | 2 |
@@ -171,8 +172,13 @@ as the game-clock measurement. The reusable harness now streams analysis and
 measures process wall duration before analysis. A fresh six-trial, three-planet,
 five-tick smoke run also passed with the corrected monotonic harness.
 
-Verification: 512 tests, 100% coverage, TypeScript, ESLint, production build and
+At the time of this experiment, 512 tests, 100% coverage, TypeScript, ESLint, production build and
 the supplied protocol validator passed. The audit integration test now runs at
 one-second cadence; its old 150 ms ticks could finish before thread startup under
 heavy parallel test load. Final coverage used two test workers to avoid resource
 contention with journal analysis.
+
+For the subsequent 120-tick, stock-30 class trials and dedicated `class25` result,
+see the [nine-client guide](../operations/nine-clients.md). The six-case table
+above remains the original 60-tick, stock-10 evidence. Current test counts and the
+verified constrained-memory build command are in [testing](../testing.md).

@@ -2,16 +2,9 @@
 
 [Documentation index](../README.md)
 
-## What was already available
-
-The baseline policy was already a pure decision function, and `Engine` already
-accepted separate `Transport` and `Sink` implementations. TypeScript tests could
-feed it snapshots without a server. Runtime selection was hard-coded to the
-baseline, however, and there was no JSON-based command for checking a decision.
-
-The worker now has a named strategy catalog, a shared policy contract, and an
-offline scenario checker. Transport, encoding and logging use a shared JSON
-serializer rather than importing a helper from the baseline trading policy.
+The worker uses a named strategy catalog and pure decision functions. The live
+worker, offline scenario checker and simulator use the same policy contract;
+transport and durable logging remain separate engine adapters.
 
 ## Select a strategy at startup
 
@@ -32,8 +25,7 @@ npm run worker -- --list-strategies
 
 The former observe, par, greedy and passive policies have been removed, including
 the simulation archetypes. Historical journals remain readable. See the
-[one-second survival design](../reference/one-second-survival.md) for proposed
-implemented policies and the logging/timing investigation.
+[one-second survival design](../reference/one-second-survival.md) for implemented policies and the logging/timing investigation.
 
 ## Generous mode: a live switch
 
@@ -52,8 +44,8 @@ baseline switch. While it is on, the baseline:
   upkeep, at most `lot` units at a time, only to stations that seek that
   resource, with at most one open gift per station and two in total.
 
-Every trade stays at or above par, and every reserve and safety check still
-applies. Our own trades rank ahead of helping accepts, and both rank ahead of
+Exchanges stay at or above par; free giveaways use the separate safety rules
+above. Every reserve and safety check still applies. Our own trades rank ahead of helping accepts, and both rank ahead of
 giveaways, so a gift only uses a command nothing else needs. Each decision's
 explanation in the journal records `generous: true|false`.
 
@@ -65,9 +57,13 @@ mixed-field run with far fewer resources (about 63 against baseline's 270),
 which matters if prizes go to the largest stock.
 
 The switch is a small JSON file, `.local/controls.json` by default
-(`{"generous":true}`). The dashboard replaces it atomically and the worker
-reads it before every decision. A missing or unreadable file means off. Set
-`BAZAAR_CONTROL_FILE` to the same path for both if you move it. Simulation and tournament workers are never wired to this file.
+(for example, `{"generous":true,"strategy":"baseline"}`). The dashboard replaces
+it atomically. The worker reads generosity before each decision and strategy only
+at startup. A missing or unreadable file means generosity is off. Set
+`BAZAAR_CONTROL_FILE` to the same path for both if you move it. A manually started
+worker against the simulator uses these same controls. In-process tournaments do
+not read this file; the nine-client launcher and one-second harness isolate their
+workers from the dashboard controls.
 
 Choose using the CLI:
 
@@ -88,7 +84,7 @@ unknown CLI flags fail startup instead of silently selecting a different policy.
 
 The Live page has strategy buttons beside Generous mode, including before any
 journal exists. Click a strategy to save the next worker's selection in the shared
-control file. New registered policies will appear here automatically. The saved selection overrides an environment
+control file. When adding a policy, also add its display label to the dashboard strategy switch. The saved selection overrides an environment
 default; an explicit CLI flag takes precedence.
 
 Selection is fixed for a worker process. To switch, stop the old worker cleanly
@@ -183,7 +179,7 @@ in a policy. Current memory uses the shared `attempted` map of action keys to
 bigint cooldown ticks.
 
 To add a new implementation, implement this contract in a policy module and
-register its name, version, description and function in
+register its name, version, description, defaults and function in
 [the catalog](../../worker/strategies.ts). Add expected actions for it to your
 scenario files. Adding a new algorithm requires code; **selecting any registered
 algorithm does not**. The worker thread and offline checker use this one catalog.
@@ -224,11 +220,13 @@ npm test                     # all tests, 100% required coverage, TypeScript, li
 npm run test:validator       # existing local live-protocol integration
 ```
 
-The strategy suite checks the real worker-thread baseline policy, exact JSON integers,
+The strategy suite checks registered policies through the real worker-thread executor, exact JSON integers,
 expected-action mismatches, malformed inputs, environment/CLI precedence,
 strategy-specific recovery, and swapping transport/log sinks without changing
 the trading policy. The supplied scenario is a deterministic decision test,
 not evidence of profitability in arbitrary markets.
+
+For setup and acceptance commands, see the [nine-client guide](nine-clients.md).
 
 Class25 starts with the behavior validated in the [baseline class trials](../reference/baseline-class-validation.md). Baseline was not retuned by that validation; it remains market-5 with its live generosity switch. Class25 is a separate entry for future class-specific tuning, not a guarantee of survival on every server or production schedule.
 

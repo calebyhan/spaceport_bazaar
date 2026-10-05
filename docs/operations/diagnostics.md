@@ -2,8 +2,10 @@
 
 [Documentation index](../README.md)
 
-The worker prints one `[lifecycle]` line each time its connection stage
-changes, and one diagnosis line for every failure. Both are also journaled:
+Routine terminal lifecycle output is filtered to P09 by default. Set
+`BAZAAR_TERMINAL_STATION=P01` to view P01, as in the example below. This display
+setting does not change the controlled station. Failures remain visible, and
+all lifecycle changes and diagnoses are journaled for every worker:
 `lifecycle` records hold each change, and `failure` records hold each
 diagnosis. Nothing printed includes tokens, credential-file contents or raw
 exception text.
@@ -74,6 +76,13 @@ the cause each time:
 [network] ECONNREFUSED: Nothing is accepting connections at the endpoint. Next step: Check the server is running and the host and port in BAZAAR_ENDPOINT. Reconnecting in 1000 ms (attempt 2).
 ```
 
+An `HTTP_530` response is treated as a retryable server-side HTTP failure.
+It occurs before a usable WebSocket connection exists. A stopped or unreachable
+origin behind a proxy is one possible cause, but the status alone does not prove
+that cause or establish whether the API key is valid. Confirm the endpoint and
+server availability with its operator if it repeats. A retry delay of 10000 ms
+is the capped reconnect backoff, not the simulation tick length.
+
 A second Ctrl+C or SIGTERM during shutdown does not force an exit: the
 worker still waits for durable records and releases its locks. Only SIGKILL
 skips that, and it leaves a stale lock that you must remove by hand (see
@@ -108,8 +117,10 @@ and the exit code where the failure is final. It covers:
   that goes silent mid-run (stale, then sync, then reconnect)
 
 The evidence directory printed at the end keeps each case's journal. Every
-case uses its own simulated server, token and journal directory, so a worker
-already running on the host does not interfere.
+case uses its own simulated server, token and journal directory. The harness
+explicitly selects baseline, isolates the control file/environment file, and
+selects P01 for terminal output so lifecycle assertions do not depend on the
+ordinary P09 filter or a saved dashboard selection.
 
 To reproduce a single fault by hand, start the simulator with `--fault`:
 

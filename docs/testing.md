@@ -15,6 +15,8 @@ Use Node 22 and install the locked dependencies with `npm ci`.
 | `npm run test:worker` | Worker unit tests and deterministic binary-protocol simulations |
 | `npm run test:coverage` | All unit tests with coverage, including dashboard and CLI |
 | `npm run test:validator` | Real Linux validator and worker subprocess on loopback; asserts all ten steps and final inventory |
+| `npm run test:one-second` | Six independent-process trials at one-second ticks; survival is an additional gate with `--require-survival`. See [acceptance commands](operations/nine-clients.md#test-locally-without-the-class-server). |
+| `npm run worker:nine` | Nine simultaneous clients and final-run verification; requires credentials and endpoint. See [nine-client setup](operations/nine-clients.md). |
 | `npm run test:exchange` | Two real worker processes trade on the local simulator; checks each client against the server ledger, both sides of every transaction, and conservation |
 | `npm run tournament` | Scores catalog strategies on the simulator; see [tournament](reference/tournament.md) |
 | `npm run test:diagnostics` | Real worker process against 14 failures; checks each diagnosis category, exit code and lifecycle order; see [diagnostics](operations/diagnostics.md) |
@@ -24,11 +26,35 @@ Use Node 22 and install the locked dependencies with `npm ci`.
 | `npm run build` | Next.js production compilation |
 | `npm run proto:generate` | Regenerate bindings after a schema change; rerun verification afterward |
 
+## Latest local verification
+
+The sanity check on 2026-10-05 passed 532 tests across 39 files using
+`npm run test:coverage -- --maxWorkers=2`, with 100% statements, branches,
+functions and lines in the scope below. TypeScript, ESLint, the ten-step supplied
+validator, the two-worker exchange and all 14 diagnostic cases also passed.
+These results do not verify the class server or its API keys; survival evidence
+is recorded separately in the [nine-client guide](operations/nine-clients.md).
+
+The default Turbopack production build was killed by the environment's memory
+limit (exit 137). The production build passed with this Webpack invocation:
+
+```sh
+NODE_OPTIONS=--max-old-space-size=2048 npm run build -- --webpack
+```
+
+This is the verified fallback for this constrained environment; `npm run build`
+still uses the framework's default bundler. `verify:responsiveness` also invokes
+the default build, so run its component checks and this fallback individually
+when reproducing here.
+
+For documentation-only edits, run `npx vitest run tests/docs.test.ts`; it checks
+local file links and that every maintained guide appears in the index.
+
 ## Coverage scope
 
 Vitest's V8 provider measures every TypeScript application file under `app/`,
 `lib/`, and `worker/`, including files that no test imports. Generated Protobuf
-bindings and test code are excluded. CSS, SQL migrations, configuration and verification scripts,
+bindings and test code are excluded. CSS, configuration and verification scripts,
 dependencies, and supplied validator binaries are outside this TypeScript
 coverage metric. Every measured file must reach 100% statements, branches,
 functions, and lines; `npm test` fails if any threshold regresses. No coverage

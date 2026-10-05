@@ -31,10 +31,10 @@ No baseline changes were needed to pass the tested survival requirement. The
 
 Reproduce with the command in [the results JSON](baseline-class-results.json).
 Raw evidence is under `.local/baseline-class-validation`; generated credentials
-and journals are intentionally untracked. [Nine-client launch instructions](../operations/worker.md#nine-client-class-demonstration)
+and journals are intentionally untracked. [Nine-client launch instructions](../operations/nine-clients.md)
 describe how to run the actual spreadsheet keys and verify every final state.
 
-The new `worker:nine` launcher also passed a separate local 120-tick trial at
+The `worker:nine` launcher, using baseline at the time, also passed a separate local 120-tick trial at
 25% surplus (seed 4): 9/9 survived, 184 exchanges settled, and
 0 total shortage ticks were recorded. It verified the nine identities, common
 run ID, terminal tick, advertised tick duration and collective success from the
@@ -42,6 +42,7 @@ workers' journals. Evidence is under `.local/nine-launcher-validation`. This
 checks the launcher end to end; the timing table above covers the three dedicated
 benchmark trials.
 
-Class-server verification is pending: the workspace contains a single configured
-live key, not the nine-key spreadsheet file, and the target endpoint/configuration
-has not been confirmed for this demonstration.
+The launcher now defaults to the separate `class25` strategy; the seed-4 result
+above remains baseline evidence. See the [class25 result](class25-results.json)
+for its dedicated trial. Class-server verification is pending; local results do
+not validate spreadsheet keys or the remote endpoint/configuration.

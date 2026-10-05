@@ -1,4 +1,4 @@
-# Autonomous worker (baseline v1 by default)
+# Autonomous worker (baseline market-5 by default)
 
 [Documentation index](../README.md)
 
@@ -34,7 +34,7 @@ Use Node 22. Follow [development setup](../setup/development.md) and the
 `proto:generate` uses the supplied schema with proto2 required fields and
 unpacked lists. Generated JavaScript and declarations live in `worker/generated`;
 never edit them by hand. The adapter preserves uint64 quantities as `bigint`,
-including values beyond JavaScript's safe-number range. Journals and JSONB use
+including values beyond JavaScript's safe-number range. Journals use
 decimal strings for those values.
 
 For the supplied exercise, use two terminals:
@@ -355,16 +355,18 @@ bypass unresolved commands; investigate the authoritative run and retain its
 original command identity.
 
 The local journal is appended and fsynced before a command is sent. Other
-records are written at once but fsynced in the background (every second and on
-close), so a slow disk cannot hold up decisions; a crash of the process loses
-nothing, and an OS crash can lose up to a second of non-command records. A
+records are written at once but fsynced periodically (every second and on
+close), independently of decision frequency. Local synchronous disk operations
+can still delay the event loop; removing remote persistence does not remove that
+risk. A crash of the process loses nothing already written, and an OS crash can
+lose non-command records since the last completed flush. A
 decision is discarded before sending only if the facts it relied on changed
 (stock, our open offers and advertisements, the tick, the target offer), and
 the discard is journaled as `cancelled`. If local
 persistence fails, the worker stops
 trading; the journal retains prepared or uncertain commands for reconciliation.
-A torn journal is rejected, not silently truncated. A disk-full or broken
-mirror therefore affects availability, not silent command tracking.
+A torn journal is rejected, not silently truncated. A disk-full or failed local write therefore affects availability, not silent
+command tracking.
 
 An atomic directory lock keyed by a hash of the access token is acquired
 **before opening the socket**, so a second worker with the same token cannot
@@ -504,46 +506,7 @@ the same logging setting when comparing runs.
 
 ## Nine-client class demonstration
 
-The original baseline acceptance test uses nine separate processes, nine generated local
-keys, 120 one-second ticks, 25% surplus, and three production-order seeds. Use
-30 initial units of each resource to match the previously observed class runs:
-
-```sh
-npm run test:one-second -- --strategy baseline --surplus 25 --seeds 1,2,3 --duration 120 --planets 9 --stock 30 --require-survival
-```
-
-`--require-survival` fails the command if any planet fails, in addition to the
-existing timing and protocol checks. Omit `--strategy` and `--surplus` to retain
-the six-case comparison. Local generated keys do not validate the class keys.
-
-For the actual server, save the spreadsheet keys in an ignored private file,
-such as `.local/class-credentials.json`, with all nine entries:
-
-```json
-{"players":[{"station_id":"P01","token":"REPLACE_WITH_P01_KEY"}]}
-```
-
-Extend that array through P09, one distinct key per station. The launcher rejects
-missing/duplicate stations or tokens before connecting. It never prints keys.
-Supply the one-second, 25%-surplus class endpoint through your private environment
-file or `--endpoint`:
-
-```sh
-BAZAAR_ENV_FILE=.env.worker.local npm run worker:nine -- --credentials .local/class-credentials.json
-```
-
-This pins all clients to `class25` and its default configuration, bypassing the
-single-token, saved strategy, generosity and numeric overrides from another run.
-Each worker has a separate journal directory. Only P09 prints routine terminal
-activity. `--strategy baseline` explicitly restores the standard baseline for all nine clients.
-Use `--strategy class25 --surplus 25` with the test harness to validate the dedicated
-class strategy. Baseline remains the default for the ordinary single worker.
-The default timeout is 300 seconds including lobby time; `--timeout` changes it.
-The launcher stops the group if one worker fails to start or exits unsuccessfully.
-Ctrl-C stops all children and allows durable journal shutdown.
-
-`verification.json` checks that all nine identities finished the same run at tick
-120 without failure, with collective success and advertised 1000 ms ticks. A
-successful worker exit alone does not pass verification. This checks the reported
-run properties; the class server's 25% surplus and actual tick pacing must also
-match the class configuration. All local and remote evidence stays in `.local`.
+Use the [nine-client guide](nine-clients.md) for local rehearsal, the complete
+P01–P09 credential format, class-server commands and result verification.
+`npm run worker:nine` defaults to `class25`; a single worker defaults to baseline.
+All nine clients run simultaneously with separate credentials and journals.

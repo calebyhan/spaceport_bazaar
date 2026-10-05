@@ -22,7 +22,7 @@ journal and picks up a new run within a second. With several workers (one per
 planet in a [local simulation](../reference/simulator.md)) a row of buttons
 chooses one. With none, it shows the most recent run.
 
-The **generous mode** switch at the top of `/live` changes how the running
+The **generous mode** switch at the top of `/live` changes how a running baseline
 worker trades from its next decision onward; see
 [generous mode](../operations/strategies.md#generous-mode-a-live-switch). It
 writes `.local/controls.json` (or `BAZAAR_CONTROL_FILE`), so the dashboard and
@@ -61,6 +61,9 @@ elsewhere. Only files found there can be opened.
 
 The strategy buttons select baseline, Class: 9 clients · 25%, 50% surplus, 25% surplus or balanced supply
 for the next worker process. An explicit CLI `--strategy` takes precedence.
+The nine-client launcher pins its own strategy and uses isolated controls, so
+these dashboard controls do not change that fleet. Dashboard refresh remains
+once per second; terminal trade summaries appear every ten simulation ticks.
 Generosity is a live baseline setting. Class25 keeps it off; surplus50, surplus25
 and balanced always use cooperative par trading. See [strategy selection](../operations/strategies.md).
 

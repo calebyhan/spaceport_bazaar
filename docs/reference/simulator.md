@@ -15,6 +15,11 @@ of the documented rules, not the classroom server.
 | [`worker/sim/server.ts`](../../worker/sim/server.ts) | WebSocket transport: authentication, readiness, sessions, tick clock. |
 | [`worker/sim/main.ts`](../../worker/sim/main.ts) | `npm run sim:server` command. |
 
+For the 120-tick, one-second, 25%-surplus rehearsal with nine independent
+clients, use the [nine-client guide](../operations/nine-clients.md). The examples
+below demonstrate smaller setups. Routine terminal logs default to P09; set
+`BAZAAR_TERMINAL_STATION` when observing another planet.
+
 ## Run it
 
 ```sh
@@ -27,7 +32,7 @@ including the endpoint, so the worker needs no code or configuration changes:
 ```sh
 BAZAAR_ENDPOINT=ws://127.0.0.1:3100/ws \
 BAZAAR_CREDENTIAL_FILE=.local/sim/credentials.json \
-BAZAAR_STATION_ID=P02 BAZAAR_JOURNAL_DIR=.local/sim/journal npm run worker
+BAZAAR_TERMINAL_STATION=P02 BAZAAR_STATION_ID=P02 BAZAAR_JOURNAL_DIR=.local/sim/journal npm run worker
 ```
 
 The run starts once every planet has sent `ready: true`, or after

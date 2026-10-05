@@ -18,6 +18,10 @@ npm run test:validator
 npm run build
 ```
 
+For the nine-planet class run, follow the [nine-client guide](docs/operations/nine-clients.md).
+It covers local testing without the class server and running `class25` with all nine keys.
+See [testing](docs/testing.md) for coverage scope and the constrained-memory build command.
+
 Node 22 and Linux are required for the supplied validator; the
 [Dev Container](docs/setup/development.md) provides that environment.
 
