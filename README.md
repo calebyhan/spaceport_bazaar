@@ -4,6 +4,9 @@ A local trading worker and read-only operator dashboard for COMP 590H.
 The worker owns the binary Protobuf WebSocket connection, journals decisions
 and results, and optionally mirrors them to Supabase for the Next.js dashboard.
 
+Run `npm run dev` beside the worker and open <http://localhost:3000/live> to
+watch a run, or `/runs` for every run's report and stats.
+
 Start with the **[documentation index](docs/README.md)** for setup, worker
 operations, testing, and protocol references.
 

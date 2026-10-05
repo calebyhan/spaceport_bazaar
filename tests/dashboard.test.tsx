@@ -2,6 +2,7 @@ import { summarizeResponsiveness } from '../lib/responsiveness';
 import { afterEach, expect, test, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 vi.mock('server-only', () => ({}));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }) }));
 import { getSupabaseEnvironment } from '../lib/env';
 import { getSupabaseAdmin } from '../lib/supabase';
 import { loadDashboard } from '../lib/dashboard';
@@ -50,6 +51,7 @@ test('dashboard maps database rows and queries the latest run with bounded, run-
   expect(html).toContain('Database connected'); expect(html).toContain('run-42');
   expect(html).toContain('<dd>0</dd>'); expect(html).toContain('Tick 0');
   expect(html).toContain('inbound'); expect(html).toContain('<time>');
+  expect(html).toContain('Live · updates every 2 s');
 });
 test.each([[], null])('empty runs %s produce an empty ready dashboard', async runs => {
   const fetcher = database({ runs });
@@ -81,9 +83,12 @@ test.each(['runs', 'current_snapshots', 'events'])('%s errors surface as an unav
   expect(await loadDashboard()).toEqual({ configuration: 'error', message: 'Database unavailable: offline', run: null, snapshot: null, events: [], responsiveness: summarizeResponsiveness([]) });
   const html = renderToStaticMarkup(await HomePage());
   expect(html).toContain('Setup needed'); expect(html).toContain('Database unavailable: offline');
+  expect(html).not.toContain('Live · updates');
 });
 test('layout preserves content, language, and metadata', () => {
-  expect(renderToStaticMarkup(<RootLayout><p>Content</p></RootLayout>)).toContain('<html lang="en"><head></head><body><p>Content</p></body></html>');
+  const page = renderToStaticMarkup(<RootLayout><p>Content</p></RootLayout>);
+  expect(page).toMatch(/^<html lang="en"><head><\/head><body><nav class="site-nav" aria-label="Dashboard">.*<\/nav><p>Content<\/p><\/body><\/html>$/);
+  for (const href of ['/live', '/runs', '/']) expect(page).toContain(`href="${href}"`);
   expect(metadata.title).toBe('Spaceport Bazaar');
 });
 test.each([false, true])('activity renders fresh waiting or stale evidence (stale=%s)', async stale => {

@@ -14,6 +14,9 @@ directory.
 | `npm run journal:trace -- --offer ID` or `--request ID` | What happened to this offer or command, and why? |
 | `npm run journal:report` | How did the run go? |
 
+The [dashboard](../setup/dashboard.md) shows the same status live at `/live`
+and the same report, with charts, for every journal at `/runs`.
+
 Add `--json` for machine-readable output, or `--out FILE` to write the
 result to a file. Each tool streams the journal, so a 200 MB class-run
 journal takes about a second. If the last line is only partly written,

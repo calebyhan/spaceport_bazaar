@@ -1,3 +1,6 @@
+import Link from "next/link";
+
+import { AutoRefresh } from "@/app/_components/auto-refresh";
 import { EVENT_WINDOW } from "@/lib/responsiveness";
 import { loadDashboard } from "@/lib/dashboard";
 
@@ -18,11 +21,12 @@ export default async function HomePage() {
 
   return (
     <main>
+      {dashboard.configuration === "ready" ? <AutoRefresh intervalMs={2000} /> : null}
       <header className="hero">
-        <p className="eyebrow">Spaceport Bazaar · operator console</p>
+        <p className="eyebrow">Spaceport Bazaar · database mirror</p>
         <h1>Run status</h1>
         <p className="subtitle">
-          The validator stays local; this dashboard reads the shared event record.
+          The worker&apos;s Supabase mirror (<code>npm run worker -- --supabase</code>), for viewing a run away from the worker&apos;s machine. On the same machine, the <Link href="/live">live view</Link> reads the local journal directly.
         </p>
         <span className={`status status-${dashboard.configuration}`}>
           {dashboard.configuration === "ready" ? "Database connected" : "Setup needed"}
@@ -57,7 +61,7 @@ export default async function HomePage() {
       <section className="panel responsiveness" aria-label="Responsiveness evidence">
         <p className="label">Measure responsiveness</p>
         <h2>Decision and response evidence</h2>
-        <p>Latest {EVENT_WINDOW} recorded events. Typical is the median; slow is the 95th percentile. Refresh to update activity.</p>
+        <p>Latest {EVENT_WINDOW} recorded events. Typical is the median; slow is the 95th percentile. Updates automatically.</p>
         <table>
           <thead><tr><th>Measurement</th><th>Samples</th><th>Typical (ms)</th><th>Slow p95 (ms)</th><th>Maximum (ms)</th></tr></thead>
           <tbody>{([
