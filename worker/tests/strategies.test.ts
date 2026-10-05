@@ -31,7 +31,7 @@ test('CLI selection overrides the environment; omission preserves baseline', () 
   expect(workerOptions([], {}).strategy.name).toBe('baseline');
   expect(workerOptions([], { BAZAAR_STRATEGY: 'observe' }).strategy.name).toBe('observe');
   expect(workerOptions(['--strategy', 'baseline'], { BAZAAR_STRATEGY: 'observe' }).strategy.name).toBe('baseline');
-  expect(workerOptions(['--strategy=observe', '--supabase'], {}).supabase).toBe(true);
+  expect(() => workerOptions(['--supabase'], {})).toThrow();
   expect(workerOptions(['--exercise'], {}).exercise).toBe(true);
   expect(workerOptions(['--list-strategies'], {}).list).toBe(true);
 });

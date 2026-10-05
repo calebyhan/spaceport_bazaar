@@ -1,10 +1,4 @@
-import { getSupabaseEnvironment } from "@/lib/env";
-
+// Process liveness only. Run/connection health is shown by the local live view.
 export function GET() {
-  const configured = getSupabaseEnvironment() !== null;
-
-  return Response.json(
-    { service: "spaceport-bazaar-dashboard", databaseConfigured: configured },
-    { status: configured ? 200 : 503 },
-  );
+  return Response.json({ service: "spaceport-bazaar-dashboard", persistence: "local-journal" });
 }

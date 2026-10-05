@@ -2,13 +2,13 @@
 
 [Documentation index](../README.md)
 
-The dashboard has two sources:
+All dashboard views read local journals:
 
 | Page | Reads | Needs |
 | --- | --- | --- |
 | `/live` | the worker's local journal, refreshed every second | nothing: run it on the worker's machine |
 | `/runs`, `/runs/<journal>` | every local journal, as a report per run | nothing |
-| `/` (database mirror) | Supabase, refreshed every 2 seconds | the steps below and `npm run worker -- --supabase` |
+| `/` | redirects to `/live` | nothing |
 
 ## Live view and run reports (no setup)
 
@@ -57,48 +57,9 @@ Journals are found under `.local` (up to six folders deep), which covers
 `--journals` output. Set `BAZAAR_JOURNAL_ROOT` for the dashboard to look
 elsewhere. Only files found there can be opened.
 
-## Database mirror
+## Health
 
-Use this to watch a run from somewhere other than the worker's machine.
-
-### 1. Set local secrets
-
-Copy the template and replace both placeholder values with the server-side
-values from the Supabase project:
-
-```sh
-cp .env.example .env.local
-```
-
-Use the project URL and a `sb_secret_...` key. `.env.local` is ignored by Git.
-Share those values through a password manager or encrypted secret-sharing tool,
-not in a commit, chat paste, or a public deployment variable.
-
-### 2. Create the schema
-
-In the Supabase project, open **SQL Editor**, paste the contents of
-`supabase/migrations/20260916000000_initial_dashboard.sql`, and run it once.
-
-The migration enables Row Level Security and does not give anonymous browsers
-access to the tables. The dashboard's server and the protocol worker
-use the server-only secret key instead.
-
-### 3. Run the dashboard
-
-```sh
-npm ci
-npm run dev
-```
-
-Open <http://localhost:3000>. The page confirms the database connection and displays an empty run state
-until the worker records its first snapshot, then updates every 2 seconds.
-
-`GET /api/health` returns whether the server has Supabase credentials. It does
-not expose the URL, key, or any database data.
-
-## Protocol worker
-
-The standalone worker now records this schema when explicitly started with
-`--supabase`. It also keeps a durable local journal. See
-[worker setup and policy](../operations/worker.md) for credentials, exercise and
-autonomous modes, recovery behavior, and reproducible verification commands.
+`GET /api/health` reports process liveness and `persistence: "local-journal"`.
+It does not claim the worker is connected or the disk is writable; the live view
+shows run health. No database keys or schema setup are needed. Supabase support
+and the `--supabase` worker option have been removed.

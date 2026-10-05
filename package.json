@@ -31,7 +31,6 @@
     "test:mutations": "node scripts/test-mutations.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.116.0",
     "long": "^5.3.2",
     "next": "^16.3.5",
     "protobufjs": "^8.8.0",

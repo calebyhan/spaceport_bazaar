@@ -1,9 +1,7 @@
 import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, rmdirSync, writeFileSync, writeSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
 import { json } from './serialization';
-import type { Snapshot } from './types';
 export interface RecordEntry {
   strategy?: string; connection?: { processId: string; epoch: number }; kind: string; payload: unknown;
   direction?: 'internal' | 'inbound' | 'outbound'; requestId?: string;
@@ -141,36 +139,5 @@ export class Journal implements Sink {
     }
     if (this.timer) clearInterval(this.timer);
     if (this.fd !== undefined) { fsyncSync(this.fd); closeSync(this.fd); }
-  }
-}
-export class SupabaseSink implements Sink {
-  private client;
-  private runId?: string;
-  constructor(url: string, secret: string) {
-    this.client = createClient(url, secret, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(10000) }) } });
-  }
-  async append(entry: RecordEntry) {
-    const payload = JSON.parse(json(entry.payload));
-    if (entry.kind === 'state') {
-      const s = entry.payload as Snapshot;
-      const { data, error } = await this.client.from('runs').upsert({ external_run_id: s.run_id, station_id: s.self_station_id, status: ['unknown', 'ready', 'running', 'paused', 'finished', 'aborted'][s.phase] }, { onConflict: 'external_run_id' }).select('id').single();
-      if (error || !data) throw new Error('Run persistence failed');
-      this.runId = data.id;
-      const response = await this.client.from('current_snapshots').upsert({ run_id: this.runId, snapshot_sequence: s.snapshot_sequence.toString(), world_version: s.world_version.toString(), tick: s.tick.toString(), phase: String(s.phase), inventory: payload.self.inventory, state: payload, updated_at: new Date().toISOString() });
-      if (response.error) throw new Error('Snapshot persistence failed');
-    }
-    if (!this.runId) return;
-    const response = await this.client.from('events').insert({ run_id: this.runId, direction: entry.direction ?? 'internal', kind: entry.kind, request_id: entry.requestId, source_sequence: entry.kind === 'state' ? payload.snapshot_sequence : undefined, payload: { ...payload, _strategy: entry.strategy, _connection: entry.connection, _sequence: entry.sequence, _at: entry.at, _mono: entry.mono } });
-    if (response.error) throw new Error('Event persistence failed');
-    if (entry.kind === 'command') {
-      const response = await this.client.from('commands').upsert({ run_id: this.runId, request_id: entry.requestId, command_type: payload.action.kind, status: 'prepared', command: payload }, { onConflict: 'run_id,request_id' });
-      if (response.error) throw new Error('Command persistence failed');
-    } else if (['sent', 'uncertain', 'cancelled', 'control-rejected'].includes(entry.kind)) {
-      const response = await this.client.from('commands').update({ status: entry.kind, result: payload }).eq('run_id', this.runId).eq('request_id', entry.requestId);
-      if (response.error) throw new Error('Command status persistence failed');
-    } else if (entry.kind === 'result') {
-      const response = await this.client.from('commands').update({ status: payload.ok ? 'succeeded' : 'rejected', result_code: String(payload.code), result: payload, resolved_at: new Date().toISOString() }).eq('run_id', this.runId).eq('request_id', entry.requestId);
-      if (response.error) throw new Error('Result persistence failed');
-    }
   }
 }

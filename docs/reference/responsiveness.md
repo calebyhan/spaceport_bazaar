@@ -2,10 +2,10 @@
 
 [Documentation index](../README.md)
 
-The engine records timing and activity evidence in the durable journal and the
-Supabase `events` stream. The dashboard reports **the latest 500 events**, not
-whole-run totals. Each timing category has its own sample count, median, p95
-(nearest rank), and maximum; no samples displays an em dash.
+The engine records timing and activity evidence in the local durable journal.
+The live dashboard and run reports read that journal directly. No remote
+persistence participates in trading. Timing categories keep separate sample
+counts and percentiles; missing evidence is not treated as zero latency.
 
 ## Timing boundaries
 
@@ -77,12 +77,9 @@ npm run verify:responsiveness
 
 The focused suite needs no credentials or running services. The full verification
 also launches the supplied Linux validator on loopback; it does not contact a live
-trading server or write to Supabase. Its final output gives the temporary evidence
+trading server or a remote database. Its final output gives the temporary evidence
 directory containing the validator report and worker journal. Coverage artifacts
 are written to `coverage/`.
 
-To inspect an actual run, start the worker with the existing `--supabase` option
-and inspect the dashboard. Compare timing categories independently and check the
-sample counts and window before drawing conclusions. Apply the new
-`20260929000000_responsiveness_contract.sql` migration to update the payload
-contract comment on an existing database; it changes no tables or permissions.
+To inspect an actual run, start the worker and open `/live` or `/runs`. Compare
+timing categories independently.

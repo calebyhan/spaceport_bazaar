@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 // Re-renders the current server page on an interval so a running worker's
-// journal (or the database mirror) shows up without a manual reload. Hidden
+// journal shows up without a manual reload. Hidden
 // tabs skip refreshes.
 export function AutoRefresh({ intervalMs }: { intervalMs: number }) {
   const router = useRouter();

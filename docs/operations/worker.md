@@ -74,13 +74,9 @@ overwritten or appended into. Restarting into the same server run_id (a crash
 recovery, not a fresh run) resumes into that same file — the process finds it
 by scanning the directory for the most recent file that has no `run-summary`
 record and reusing it only if its own records name that same run_id;
-otherwise it starts a new file. Keep the whole directory across restarts. To
-mirror records into an **already provisioned and authorized** Supabase database, add
-`SUPABASE_URL` and `SUPABASE_SECRET_KEY` to the worker environment and explicitly
-run `npm run worker -- --supabase`. This reuses `runs`, `events`, `commands`, and
-`current_snapshots`; it needs no migration. The worker never applies migrations.
-The dashboard remains unchanged. Database writes were not exercised against a
-remote project as part of this implementation.
+otherwise it starts a new file. Keep the whole directory across restarts.
+All persistence is local. Supabase support and `--supabase` have been removed;
+old database credentials are ignored and the removed flag fails startup clearly.
 
 ## Policy and comparisons
 
@@ -92,7 +88,7 @@ only when submitting the action. Persisted explanations contain the full input
 snapshot, connection epoch, policy/config version, liabilities, reserve bundle,
 tick-by-tick wait forecast, action and rationale. Each decision record carries the request ID of the command it produced,
 and results and subsequent states are linked through the same ID in the
-journal and optional database mirror.
+local journal.
 
 The `market` policy (worker/policy.ts, with the market model in
 worker/market.ts) replaced `baseline-2` after run-37. Version `market-4` adds
@@ -365,7 +361,7 @@ nothing, and an OS crash can lose up to a second of non-command records. A
 decision is discarded before sending only if the facts it relied on changed
 (stock, our open offers and advertisements, the tick, the target offer), and
 the discard is journaled as `cancelled`. If local
-persistence or the explicitly enabled Supabase mirror fails, the worker stops
+persistence fails, the worker stops
 trading; the journal retains prepared or uncertain commands for reconciliation.
 A torn journal is rejected, not silently truncated. A disk-full or broken
 mirror therefore affects availability, not silent command tracking.
@@ -414,17 +410,15 @@ The policy still credits no open incoming promise and preserves capacity. Values
 data. The pricing ladder assumes counterparties accept at or above some fixed
 ratio. It sends no probe offers to stations with no supply evidence. There is
 no guarantee of survival when counterparties stop trading. Forecast work is bounded to 10,000 remaining ticks; larger runs fail
-closed. The journal is append-only and is not compacted. The existing PostgreSQL
-bigint columns have signed 64-bit bounds; wire values remain exact in JSON, but
-an out-of-range database clock causes a safe persistence stop. Remote database
-permissions and distributed control are not validated by local tests.
+closed. The local journal is append-only and is not compacted. Wire integers
+remain exact in JSON; no database integer conversion is involved.
 
 Every journal/event record includes a random worker-process ID plus a connection
 epoch, a local monotonic sequence number, a UTC timestamp, and a monotonic
 (`process.hrtime`) timestamp for latency measurement immune to clock jumps.
 This also distinguishes sequence resets across process restarts. The
 current snapshot remains the raw authoritative observation; no transaction is
-re-applied during database mirroring.
+re-applied by dashboard rendering.
 
 Closing the gaps against the [real-run logging note](../real-run-logging-note.md), the journal also
 records: one immutable `manifest` entry per run (server/local identifiers,

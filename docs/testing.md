@@ -45,13 +45,12 @@ strategy is safe in every possible market.
 
 Tests assert observable outcomes: exact resource quantities and request IDs,
 policy ordering, retained liabilities, no sends after persistence failure,
-query scoping, database record contents, response status, and rendered content.
+journal scoping, record contents, response status, and rendered content.
 Boundary cases include expiry, capacity, permanent failure, malformed messages,
 stale observations, delayed persistence, restart recovery, and shutdown.
 
 Worker simulations use the real binary codec, policy and engine. Persistence
-unit tests use real temporary files; Supabase adapter tests intercept HTTP with
-synthetic responses and make no remote database writes. CLI unit tests isolate
+unit tests use real temporary files; there is no database adapter. CLI unit tests isolate
 socket and process boundaries so reconnect and failure paths are deterministic.
 The separate validator check covers the real CLI and WebSocket integration.
 

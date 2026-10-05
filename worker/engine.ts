@@ -23,8 +23,8 @@ export interface EngineOptions {
   // The operator's live switches, read afresh before every policy decision.
   controls?: () => Controls;
 }
-const persistenceFailure: Diagnosis = { category: 'application', code: 'PERSISTENCE_FAILED', message: 'A journal or database write failed, so trading stopped before sending anything unrecorded',
-  hint: 'Check disk space and permissions for BAZAAR_JOURNAL_DIR (or the Supabase mirror); keep the journal, which holds unresolved commands for recovery.' };
+const persistenceFailure: Diagnosis = { category: 'application', code: 'PERSISTENCE_FAILED', message: 'A local journal write failed, so trading stopped before sending anything unrecorded',
+  hint: 'Check disk space and permissions for BAZAAR_JOURNAL_DIR; keep the journal, which holds unresolved commands for recovery.' };
 function restorePending(payload: unknown): Pending & { run: string } {
   const p = payload as Pending & { run: string };
   const action = structuredClone(p.action);

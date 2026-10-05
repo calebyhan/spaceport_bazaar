@@ -5,7 +5,7 @@
 ## Setup
 
 - [Development environment](setup/development.md): Dev Container, Linux validator, dependencies.
-- [Dashboard setup](setup/dashboard.md): live view and run reports from local journals; Supabase mirror schema, credentials, startup.
+- [Dashboard setup](setup/dashboard.md): live view and run reports from local journals; startup.
 
 ## Operations and development
 
@@ -25,7 +25,7 @@
 - [Self-assessment evidence](self-assessment.md): the command and expected result behind each rating in sections 1, 2 and 6.
 - [Supplied validator guide](../artifacts/bazaar-protobuf-starter-linux/README.md): authoritative local exercise instructions.
 - [Protobuf schema](../artifacts/bazaar-protobuf-starter-linux/bazaar.proto): authoritative wire definitions.
-- [Environment template](../.env.example) and [database migration](../supabase/migrations/20260916000000_initial_dashboard.sql).
+- [Environment template](../.env.example).
 
 ## Run findings
 

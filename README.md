@@ -1,8 +1,9 @@
 # Spaceport Bazaar
 
-A local trading worker and read-only operator dashboard for COMP 590H.
+A local trading worker and operator dashboard for COMP 590H.
 The worker owns the binary Protobuf WebSocket connection, journals decisions
-and results, and optionally mirrors them to Supabase for the Next.js dashboard.
+and results locally. The Next.js dashboard reads those journals directly; there
+is no database service or remote logging dependency.
 
 Run `npm run dev` beside the worker and open <http://localhost:3000/live> to
 watch a run, or `/runs` for every run's report and stats.
@@ -22,11 +23,10 @@ Node 22 and Linux are required for the supplied validator; the
 
 | Directory | Purpose |
 | --- | --- |
-| `app/`, `lib/` | Dashboard, health endpoint, database reads |
+| `app/`, `lib/` | Dashboard, health endpoint, local journal reads |
 | `worker/` | Protocol engine, policy, durable persistence, worker tests |
 | `tests/` | Dashboard and repository checks |
 | `docs/` | Maintained project documentation |
-| `supabase/migrations/` | Database schema |
 | `artifacts/` | Supplied validator binaries, Protobuf schema, and original guide |
 
 The [supplied exercise guide](artifacts/bazaar-protobuf-starter-linux/README.md)

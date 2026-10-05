@@ -3,7 +3,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { Engine } from './engine';
-import { acquireLock, Journal, SupabaseSink, type Sink } from './persistence';
+import { acquireLock, Journal } from './persistence';
 import { workerOptions } from './options';
 import { listStrategies } from './strategies';
 import { defaultConfig } from './types';
@@ -50,7 +50,7 @@ async function main() {
   let selection: ReturnType<typeof workerOptions>;
   try { selection = workerOptions(process.argv.slice(2), process.env); } catch (error) {
     // Option and strategy errors name only flags and registered strategies.
-    throw configuration('INVALID_OPTIONS', (error as Error).message, 'Run npm run worker -- --list-strategies; flags are --strategy, --exercise and --supabase.');
+    throw configuration('INVALID_OPTIONS', (error as Error).message, 'Run npm run worker -- --list-strategies; flags are --strategy and --exercise.');
   }
   if (selection.list) { console.log(JSON.stringify(listStrategies(), null, 2)); return; }
   const endpoint = process.env.BAZAAR_ENDPOINT;
@@ -68,11 +68,6 @@ async function main() {
   try { journal = new Journal(process.env.BAZAAR_JOURNAL_DIR ?? '.local/journal'); } catch {
     throw failure('application', 'JOURNAL_UNREADABLE', 'The journal directory could not be opened, or its newest file has a torn or corrupt line',
       'Check permissions for BAZAAR_JOURNAL_DIR and inspect the last line of its newest file; never delete it to bypass recovery.');
-  }
-  let mirror: Sink | undefined;
-  if (selection.supabase) {
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) throw configuration('MISSING_MIRROR_CONFIG', '--supabase needs SUPABASE_URL and SUPABASE_SECRET_KEY', 'Add both to the private worker environment file, or run without --supabase.');
-    mirror = new SupabaseSink(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
   }
   const config = { ...defaultConfig, version: selection.strategy.version };
   const settings = {
@@ -125,7 +120,7 @@ async function main() {
   const checksum = schemaChecksum();
   const engine = new Engine({ config, exercise, strategyName: selection.strategy.name, previous: journal.previous,
     sink: {
-      append: async entry => { await journal.append(entry); await mirror?.append(entry); },
+      append: async entry => { await journal.append(entry); },
       resolve: (runId, stationId) => journal.resolve(runId, stationId),
     },
     identity: s => {

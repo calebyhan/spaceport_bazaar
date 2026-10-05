@@ -1,13 +1,12 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { EngineOptions, Transport } from '../engine';
-const f = vi.hoisted(() => ({ sockets: [] as (EventEmitter & { protocol: string; readyState: number; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn>; ping: ReturnType<typeof vi.fn> })[], options: undefined as EngineOptions | undefined, transport: undefined as Transport | undefined, unlock: vi.fn(), journalAppend: vi.fn(), mirrorAppend: vi.fn(), journalClose: vi.fn(), loadEnv: vi.fn(), read: vi.fn(), stopped: false, idle: vi.fn(), fail: vi.fn(), receive: vi.fn(), disconnected: vi.fn(), record: vi.fn(), journalResolve: vi.fn(), exec: vi.fn(), snapshot: undefined as unknown, last: undefined as unknown, opened: vi.fn(), lock: vi.fn(), journalError: false }));
+const f = vi.hoisted(() => ({ sockets: [] as (EventEmitter & { protocol: string; readyState: number; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn>; ping: ReturnType<typeof vi.fn> })[], options: undefined as EngineOptions | undefined, transport: undefined as Transport | undefined, unlock: vi.fn(), journalAppend: vi.fn(), journalClose: vi.fn(), loadEnv: vi.fn(), read: vi.fn(), stopped: false, idle: vi.fn(), fail: vi.fn(), receive: vi.fn(), disconnected: vi.fn(), record: vi.fn(), journalResolve: vi.fn(), exec: vi.fn(), snapshot: undefined as unknown, last: undefined as unknown, opened: vi.fn(), lock: vi.fn(), journalError: false }));
 vi.mock('node:child_process', () => ({ execFileSync: f.exec }));
 vi.mock('node:fs', () => ({ readFileSync: f.read, realpathSync: (path: string) => `/real/${path}` }));
 vi.mock('../persistence', () => ({
   acquireLock: f.lock,
   Journal: class { previous = []; append = f.journalAppend; close = f.journalClose; resolve = f.journalResolve; constructor() { if (f.journalError) throw new SyntaxError('Unexpected end of JSON input'); } },
-  SupabaseSink: class { append = f.mirrorAppend; },
 }));
 vi.mock('../engine', () => ({ Engine: class {
   constructor(options: EngineOptions) { f.options = options; }
@@ -95,15 +94,14 @@ test('a held run lock is reported as LOCK_HELD to the engine', async () => {
   expect(() => f.options!.identity!({ run_id: 'run', self_station_id: 'P01', advertisements: { items: [] } } as unknown as Parameters<NonNullable<EngineOptions['identity']>>[0]))
     .toThrow(expect.objectContaining({ diagnosis: expect.objectContaining({ code: 'LOCK_HELD' }) }));
 });
-test('environment, credential selection, mirror and policy overrides flow into engine', async () => {
+test('environment, credential selection and policy overrides flow into engine', async () => {
   vi.stubEnv('BAZAAR_TOKEN', ''); vi.stubEnv('BAZAAR_ENV_FILE', '/private/env'); vi.stubEnv('BAZAAR_CREDENTIAL_FILE', '/private/credentials');
   vi.stubEnv('BAZAAR_JOURNAL_DIR', '/tmp/test-journal'); vi.stubEnv('BAZAAR_LOT', '3');
-  vi.stubEnv('SUPABASE_URL', 'https://database.example'); vi.stubEnv('SUPABASE_SECRET_KEY', 'secret');
   f.read.mockReturnValue(JSON.stringify({ players: [{ station_id: 'P02', token: 'other' }, { station_id: 'P01', token: 'token' }] }));
-  process.argv.push('--exercise', '--supabase'); await start();
+  process.argv.push('--exercise'); await start();
   expect(f.loadEnv).toHaveBeenCalledWith('/private/env'); expect(f.options?.config?.lot).toBe(3n); expect(f.options?.exercise).toBe(true);
   await f.options!.sink.append({ kind: 'state', payload: {} });
-  expect(f.journalAppend).toHaveBeenCalledOnce(); expect(f.mirrorAppend).toHaveBeenCalledOnce();
+  expect(f.journalAppend).toHaveBeenCalledOnce();
   f.options!.sink.resolve!('run', 'P01'); expect(f.journalResolve).toHaveBeenCalledWith('run', 'P01');
   f.options!.identity!({ run_id: 'run', self_station_id: 'P01', advertisements: { items: [] } } as unknown as Parameters<NonNullable<EngineOptions['identity']>>[0]);
   f.read.mockReturnValueOnce('{"generous":true}');
@@ -121,9 +119,10 @@ test.each(['{"players":[]}', '{"players":{}}'])('unknown credential station fail
   f.read.mockReturnValue(content); await start(); expect(process.exitCode).toBe(2);
   expect(printed()).toContain('[configuration] UNKNOWN_STATION: The credential file has no token for station absent');
 });
-test.each([['', 'secret'], ['https://database.example', '']])('mirror requires both credentials', async (url, key) => {
-  vi.stubEnv('SUPABASE_URL', url); vi.stubEnv('SUPABASE_SECRET_KEY', key); process.argv.push('--supabase'); await start(); expect(process.exitCode).toBe(2);
-  expect(printed()).toContain('MISSING_MIRROR_CONFIG');
+test('the removed database flag is rejected before startup', async () => {
+  process.argv.push('--supabase'); await start();
+  expect(process.exitCode).toBe(2); expect(f.sockets).toHaveLength(0);
+  expect(printed()).toContain('INVALID_OPTIONS');
 });
 test('socket forwards binary messages, terminates failed writes, and rejects closed writes', async () => {
   await start(); const ws = f.sockets[0]; ws.emit('open');
@@ -137,7 +136,7 @@ test('socket forwards binary messages, terminates failed writes, and rejects clo
   expect(f.record).toHaveBeenCalledWith({ kind: 'ws-error', payload: { category: 'network', code: 'SOCKET_ERROR' } });
   expect(JSON.stringify(f.record.mock.calls)).not.toContain('secret');
   expect(f.opened).toHaveBeenCalledWith(1);
-  await f.options!.sink.append({ kind: 'ready', payload: {} }); expect(f.mirrorAppend).not.toHaveBeenCalled();
+  await f.options!.sink.append({ kind: 'ready', payload: {} });
 });
 test('transport close terminates a peer that never completes the close handshake', async () => {
   await start(); const ws = f.sockets[0]; f.transport!.close();
