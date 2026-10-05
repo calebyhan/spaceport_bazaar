@@ -14,7 +14,7 @@ import LivePage from '../app/live/page';
 import RunsPage from '../app/runs/page';
 import RunPage from '../app/runs/[...id]/page';
 import { GET } from '../app/api/runs/report/route';
-import { setGenerous } from '../app/live/actions';
+import { setGenerous, setStrategy } from '../app/live/actions';
 import { revalidatePath } from 'next/cache';
 import { readControls } from '../worker/controls';
 import { entries } from '../worker/tests/journal-fixture';
@@ -270,4 +270,30 @@ test('outcome, trading and problem sections cover their empty and signed cases',
   expect(quiet).toContain('Control errors: code 1.'); expect(quiet).toContain('end of journal'); expect(quiet).toContain('unknown');
   expect(quiet).not.toContain('Stale periods'); expect(quiet).not.toContain('Failures');
   expect(renderToStaticMarkup(<Problems run={variant(r => { r.report.controlErrors = []; })} />)).not.toContain('Control errors');
+});
+
+test('strategy selection is available before startup, persists, and preserves generosity', async () => {
+  const form = new FormData(); form.set('generous', 'on'); await setGenerous(form);
+  const page = await html(LivePage({ searchParams: Promise.resolve({}) }));
+  expect(page).toContain('Strategy for next worker'); expect(page).toContain('value="baseline"');
+  expect(page).not.toContain('value="observe"');
+  form.set('strategy', 'baseline'); await setStrategy(form);
+  expect(readControls()).toEqual({ generous: true, strategy: 'baseline' });
+  expect(await html(LivePage({ searchParams: Promise.resolve({}) }))).toContain('Baseline</button>');
+  form.set('generous', 'off'); await setGenerous(form);
+  expect(readControls()).toEqual({ generous: false, strategy: 'baseline' });
+  form.set('strategy', 'observe'); await expect(setStrategy(form)).rejects.toThrow('Unknown strategy');
+  form.delete('strategy'); await expect(setStrategy(form)).rejects.toThrow('Choose a strategy');
+  expect(readControls()).toEqual({ generous: false, strategy: 'baseline' });
+});
+
+test.each(['surplus50', 'surplus25', 'balanced'])('the dashboard saves %s for the next worker without changing generosity', async strategy => {
+  const form = new FormData(); form.set('strategy', strategy);
+  await setStrategy(form);
+  expect(readControls()).toEqual({ strategy, generous: false });
+  const page = await html(LivePage({ searchParams: Promise.resolve({}) }));
+  expect(page).toContain(`Strategy for next worker · ${strategy}`);
+  expect(page).toContain('50% surplus'); expect(page).toContain('25% surplus'); expect(page).toContain('Balanced supply');
+  form.set('generous', 'on'); await setGenerous(form);
+  expect(readControls()).toEqual({ strategy, generous: true });
 });

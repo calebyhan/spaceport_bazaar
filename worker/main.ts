@@ -47,7 +47,7 @@ async function main() {
     }
   }
   let selection: ReturnType<typeof workerOptions>;
-  try { selection = workerOptions(process.argv.slice(2), process.env); } catch (error) {
+  try { selection = workerOptions(process.argv.slice(2), process.env, readControls(controlFile()).strategy); } catch (error) {
     // Option and strategy errors name only flags and registered strategies.
     throw configuration('INVALID_OPTIONS', (error as Error).message, 'Run npm run worker -- --list-strategies; flags are --strategy and --exercise.');
   }

@@ -78,10 +78,15 @@ Or put this setting in your existing private worker environment file:
 BAZAAR_STRATEGY=baseline
 ```
 
-Precedence is **CLI `--strategy` → `BAZAAR_STRATEGY` → `baseline`**. The worker
+Precedence is **CLI `--strategy` → saved dashboard selection → `BAZAAR_STRATEGY` → `baseline`**. The worker
 loads `BAZAAR_ENV_FILE` before resolving the selection. Endpoint and token setup
 are unchanged; see [worker operations](worker.md). Persistence is local only; the old `--supabase` flag is rejected. Unknown names, missing option values and
 unknown CLI flags fail startup instead of silently selecting a different policy.
+
+The Live page has strategy buttons beside Generous mode, including before any
+journal exists. Click a strategy to save the next worker's selection in the shared
+control file. New registered policies will appear here automatically. The saved selection overrides an environment
+default; an explicit CLI flag takes precedence.
 
 Selection is fixed for a worker process. To switch, stop the old worker cleanly
 and restart it with the new setting, keeping the same journal. Switching never

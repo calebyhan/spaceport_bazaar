@@ -3,7 +3,7 @@
 [Documentation index](../README.md)
 
 The worker is a separate Node process; the dashboard never owns the trading
-socket. Choose `baseline` or `observe` with `--strategy` or `BAZAAR_STRATEGY`;
+socket. Choose `baseline` on the Live page, with `--strategy`, or with `BAZAAR_STRATEGY`;
 see [strategy selection and offline checks](strategies.md) for configuration,
 JSON fixtures, and the transport/logging extension points. The policy details
 below describe the baseline. `worker/policy.ts` contains the deterministic decision function and

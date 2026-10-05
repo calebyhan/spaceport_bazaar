@@ -280,3 +280,10 @@ test('keepalive pings only an open socket and transport events are journaled', a
   ws.emit('close', 1006, Buffer.from('gone'));
   expect(f.record).toHaveBeenCalledWith({ kind: 'ws-close', payload: { code: 1006, reason: 'gone' } });
 });
+
+test('saved dashboard strategy is used at startup before the environment default', async () => {
+  f.read.mockReturnValueOnce('{"strategy":"baseline","generous":true}');
+  vi.stubEnv('BAZAAR_STRATEGY', 'observe');
+  await start();
+  expect(f.options?.strategyName).toBe('baseline');
+});

@@ -57,7 +57,12 @@ Journals are found under `.local` (up to six folders deep), which covers
 `--journals` output. Set `BAZAAR_JOURNAL_ROOT` for the dashboard to look
 elsewhere. Only files found there can be opened.
 
-## Health
+## Strategy selection and health
+
+The strategy buttons select baseline, 50% surplus, 25% surplus or balanced supply
+for the next worker process. An explicit CLI `--strategy` takes precedence.
+Generosity is a live baseline setting; the three survival policies always use
+cooperative par trading. See [strategy selection](../operations/strategies.md).
 
 `GET /api/health` reports process liveness and `persistence: "local-journal"`.
 It does not claim the worker is connected or the disk is writable; the live view

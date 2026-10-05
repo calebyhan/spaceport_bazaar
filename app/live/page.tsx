@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AutoRefresh } from "@/app/_components/auto-refresh";
+import { StrategySwitch } from "@/app/_components/strategy-switch";
 import { GenerousSwitch } from "@/app/_components/generous-switch";
 import { RunBody, RunHeader, runHref } from "@/app/_components/run-view";
 import { activeJournals, listJournals, tryLoadRun } from "@/lib/journals";
@@ -19,6 +20,7 @@ export default async function LivePage({ searchParams }: { searchParams: Search 
     return (
       <main>
         <AutoRefresh intervalMs={1000} />
+        <StrategySwitch />
         <GenerousSwitch />
         <header className="hero">
           <p className="eyebrow">Live run</p>
@@ -32,6 +34,7 @@ export default async function LivePage({ searchParams }: { searchParams: Search 
   return (
     <main>
       <AutoRefresh intervalMs={1000} />
+      <StrategySwitch />
       <GenerousSwitch />
       {active.length > 1 ? (
         <nav className="picker" aria-label="Active workers">

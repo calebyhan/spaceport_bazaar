@@ -24,3 +24,11 @@ test('written controls round-trip, creating the folder', () => {
   writeControls({ generous: false }, path);
   expect(readControls(path)).toEqual({ generous: false });
 });
+
+test('startup strategy round-trips with live generosity and invalid files fail safely', () => {
+  const path = join(temp(), 'c.json');
+  writeControls({ generous: true, strategy: 'baseline' }, path);
+  expect(readControls(path)).toEqual({ generous: true, strategy: 'baseline' });
+  writeFileSync(path, '{"strategy":"observe"}');
+  expect(readControls(path)).toEqual({ generous: false });
+});

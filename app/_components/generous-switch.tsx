@@ -14,7 +14,7 @@ export function GenerousSwitch() {
           {generous
             ? "Asking only 1:1 and accepting safe 1:1 trades paid from spare stock. Never below par."
             : "Normal pricing: asks a premium when the market allows and accepts only trades that gain value."}
-          {" "}Applies from the worker&apos;s next decision.
+          {" "}Applies to baseline from its next decision. The surplus and balanced strategies always use cooperative par trading.
         </p>
       </div>
       <button type="submit" aria-pressed={generous}>{generous ? "Turn off" : "Turn on"}</button>

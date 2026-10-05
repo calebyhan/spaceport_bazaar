@@ -5,7 +5,7 @@
 ## Setup
 
 - [Development environment](setup/development.md): Dev Container, Linux validator, dependencies.
-- [Dashboard setup](setup/dashboard.md): live view and run reports from local journals; startup.
+- [Dashboard setup](setup/dashboard.md): live view and run reports from local journals; strategy selection and startup.
 
 ## Operations and development
 
