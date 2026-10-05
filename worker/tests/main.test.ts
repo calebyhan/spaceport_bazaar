@@ -182,7 +182,8 @@ test('a dropped connection without an error is reported by its close code', asyn
   await start(); f.sockets[0].emit('open'); f.sockets[0].emit('close', 1001, Buffer.from('bye'));
   expect(printed()).toContain('[network] CLOSE_1001: The server closed the connection.');
 });
-test('lifecycle changes are printed as one line each', async () => {
+test('lifecycle changes are printed as one line each for P09', async () => {
+  vi.stubEnv('BAZAAR_STATION_ID', 'P09');
   await start(); f.options!.lifecycle!({ from: 'connected', to: 'authenticated', reason: 'Snapshot received', epoch: 1, tick: 3n, phase: 2 });
   expect(console.log).toHaveBeenCalledWith('[lifecycle] connected -> authenticated (tick 3, RUNNING): Snapshot received');
 });
@@ -199,6 +200,7 @@ test('reconnect backs off, resets after open, and stops after shutdown', async (
   f.options!.done!(); f.sockets.at(-1)!.emit('close', 1006, Buffer.alloc(0)); await vi.advanceTimersByTimeAsync(10000); expect(f.sockets).toHaveLength(9);
 });
 test.each(['SIGINT', 'SIGTERM'])('%s drains persistence and closes once, even when repeated', async signal => {
+  vi.stubEnv('BAZAAR_STATION_ID', 'P09');
   await start(); signals.get(signal)!(); signals.get(signal)!(); await Promise.resolve(); await Promise.resolve();
   expect(f.stopped).toBe(true); expect(f.journalClose).toHaveBeenCalledOnce(); expect(f.unlock).toHaveBeenCalledTimes(2); expect(process.exitCode).toBe(0);
   expect(console.error).toHaveBeenCalledWith('Shutdown in progress; waiting for durable records and lock release.');
@@ -212,6 +214,7 @@ test.each(['SIGINT', 'SIGTERM', 'fatal'])('%s handles persistence rejection', as
   expect(process.exitCode).toBe(signal === 'fatal' ? 6 : 1); expect(f.journalClose).toHaveBeenCalledOnce();
 });
 test.each([['authentication', 3], ['protocol', 4], ['network', 5], ['application', 6]] as const)('a fatal %s failure prints its diagnosis and exits %i', async (category, code) => {
+  vi.stubEnv('BAZAAR_STATION_ID', 'P09');
   await start(); f.options!.fatal!({ ...persistence, category }); await Promise.resolve(); await Promise.resolve();
   expect(process.exitCode).toBe(code);
   expect(printed()).toContain(`[${category}] PERSISTENCE_FAILED: A write failed. Next step: Check the disk`);
@@ -286,4 +289,10 @@ test('saved dashboard strategy is used at startup before the environment default
   vi.stubEnv('BAZAAR_STRATEGY', 'observe');
   await start();
   expect(f.options?.strategyName).toBe('baseline');
+});
+
+test('other planets do not print lifecycle activity', async () => {
+  vi.stubEnv('BAZAAR_STATION_ID', 'P01'); await start();
+  f.options!.lifecycle!({ from: 'connected', to: 'authenticated', reason: 'Snapshot received', epoch: 1 });
+  expect(console.log).not.toHaveBeenCalled();
 });

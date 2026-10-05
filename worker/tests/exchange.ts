@@ -32,7 +32,7 @@ async function run() {
       const child = spawn(process.execPath, ['--import', 'tsx', 'worker/main.ts'], { env: { ...process.env, BAZAAR_STRATEGY: 'baseline', BAZAAR_ENV_FILE: '', BAZAAR_TOKEN: '',
         BAZAAR_ENDPOINT: server.url, BAZAAR_CREDENTIAL_FILE: credentials, BAZAAR_STATION_ID: p.station_id, BAZAAR_JOURNAL_DIR: join(dir, p.station_id) } });
       let output = '';
-      child.stdout.on('data', chunk => { output += chunk; }); child.stderr.on('data', chunk => { output += chunk; });
+      child.stdout.on('data', chunk => { output += chunk; process.stdout.write(chunk); }); child.stderr.on('data', chunk => { output += chunk; process.stdout.write(chunk); });
       const timer = setTimeout(() => child.kill('SIGTERM'), 30000);
       child.once('exit', code => { clearTimeout(timer); resolve({ code, output }); });
     })));

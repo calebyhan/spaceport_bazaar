@@ -20,13 +20,13 @@ async function processTrial(economy: EconomyOptions, strategy: string, dir: stri
   const credentials = join(dir, 'credentials.json');
   writeFileSync(credentials, json({ players }), { mode: 0o600 });
   const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of Object.keys(env)) if (key.startsWith('BAZAAR_') || key.startsWith('SUPABASE_')) delete env[key];
+  for (const key of Object.keys(env)) if (key !== 'BAZAAR_TERMINAL_LOG' && key !== 'BAZAAR_TERMINAL_STATION' && (key.startsWith('BAZAAR_') || key.startsWith('SUPABASE_'))) delete env[key];
   const children = players.map(p => {
     const child = spawn(process.execPath, ['--import', 'tsx', 'worker/main.ts', '--strategy', strategy], { env: { ...env,
       BAZAAR_ENDPOINT: server.url, BAZAAR_CREDENTIAL_FILE: credentials, BAZAAR_STATION_ID: p.station_id,
       BAZAAR_CONTROL_FILE: join(dir, 'controls.json'), BAZAAR_JOURNAL_DIR: join(dir, p.station_id) }, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
-    child.stdout.on('data', b => { output += b; }); child.stderr.on('data', b => { output += b; });
+    child.stdout.on('data', b => { output += b; process.stdout.write(b); }); child.stderr.on('data', b => { output += b; process.stdout.write(b); });
     const done = new Promise<string | undefined>(resolve => {
       child.once('error', error => resolve(`${p.station_id}: ${error.message}`));
       child.once('exit', code => { writeFileSync(join(dir, `${p.station_id}.log`), output); resolve(code === 0 ? undefined : `${p.station_id}: exit ${code}`); });

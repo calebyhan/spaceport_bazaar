@@ -21,7 +21,7 @@ async function run() {
     }
     assert.ok(available, 'validator did not create credentials');
     worker = spawn(process.execPath, ['--import', 'tsx', 'worker/main.ts', '--exercise'], { env: { ...process.env, BAZAAR_STRATEGY: undefined, BAZAAR_TOKEN: '', BAZAAR_ENV_FILE: '', BAZAAR_ENDPOINT: `ws://127.0.0.1:${port}/ws`, BAZAAR_CREDENTIAL_FILE: credential, BAZAAR_JOURNAL_DIR: join(dir, 'journal') }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let output = ''; worker.stdout?.on('data', b => { output += b; }); worker.stderr?.on('data', b => { output += b; });
+    let output = ''; worker.stdout?.on('data', b => { output += b; process.stdout.write(b); }); worker.stderr?.on('data', b => { output += b; process.stdout.write(b); });
     const completed = new Promise<number | null>(resolve => worker!.once('exit', resolve));
     const timeout = setTimeout(() => worker?.kill('SIGKILL'), 20000);
     const code = await completed; clearTimeout(timeout);

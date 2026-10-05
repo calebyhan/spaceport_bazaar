@@ -4,6 +4,7 @@
 // any registered strategy can be swapped in without code changes.
 import { join } from 'node:path';
 import WebSocket from 'ws';
+import { terminalSink } from '../terminal';
 import { Engine } from '../engine';
 import { Journal, type Sink } from '../persistence';
 import { getStrategy } from '../strategies';
@@ -40,7 +41,7 @@ export async function runTrial(options: TrialOptions): Promise<{ report: ServerR
       const journal = options.journalDir === undefined ? undefined : new Journal(join(options.journalDir, player.station_id));
       if (journal) journals.push(journal);
       const sink: Sink = journal ? { append: entry => journal.append(entry), resolve: (run, station) => journal.resolve(run, station) } : { append: async () => {} };
-      const engine = new Engine({ strategyName: options.strategies[i], sink, previous: journal?.previous, done: resolve,
+      const engine = new Engine({ strategyName: options.strategies[i], sink: terminalSink(sink), previous: journal?.previous, done: resolve,
         fatal: diagnosis => { failures.push(`${player.station_id}: ${diagnosis.category} ${diagnosis.code}`); resolve(); } });
       engines.push(engine);
       const socket = new WebSocket(server.url, SUBPROTOCOL, { headers: { Authorization: `Bearer ${player.token}` } });

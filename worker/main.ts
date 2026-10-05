@@ -8,6 +8,7 @@ import { workerOptions } from './options';
 import { listStrategies } from './strategies';
 import { controlFile, readControls } from './controls';
 import { diagnose, exitCodes, failure, formatDiagnosis, handshakeRejected, socketError, type Diagnosis } from './diagnostics';
+import { terminalSink, terminalStationMatches } from './terminal';
 import { formatLifecycle } from './lifecycle';
 
 const SUBPROTOCOL = 'bazaar.protobuf.v2';
@@ -60,6 +61,7 @@ async function main() {
   if (!url || !['ws:', 'wss:'].includes(url.protocol)) throw configuration('INVALID_ENDPOINT', 'BAZAAR_ENDPOINT must be a ws:// or wss:// URL', 'Use the full endpoint, for example ws://127.0.0.1:3001/ws.');
   if (url.username || url.password) throw configuration('INVALID_ENDPOINT', 'BAZAAR_ENDPOINT must not contain credentials', 'Remove the credentials from the URL and put the token in BAZAAR_TOKEN.');
   const exercise = selection.exercise;
+  let terminalStation = process.env.BAZAAR_STATION_ID;
   // Replaced by BAZAAR_JOURNAL_DIR (one file per run instead of one growing
   // file forever); fail loudly rather than silently ignoring a stale setting.
   if (process.env.BAZAAR_JOURNAL) throw configuration('RETIRED_SETTING', 'BAZAAR_JOURNAL was replaced by BAZAAR_JOURNAL_DIR', 'Set BAZAAR_JOURNAL_DIR to a directory; each run gets its own file there.');
@@ -112,17 +114,18 @@ async function main() {
     }
     unlock?.(); unlockToken?.(); unlockJournal?.(); journal.close();
     if (diagnosis) console.error(formatDiagnosis(diagnosis));
-    console.log(success ? 'Worker completed.' : 'Worker stopped; inspect the local journal before recovery.');
+    if (terminalStationMatches(terminalStation)) console.log(success ? 'Worker completed.' : 'Worker stopped; inspect the local journal before recovery.');
     process.exitCode = diagnosis ? exitCodes[diagnosis.category] : success ? 0 : 1;
   };
   const { packageVersion, gitCommit } = appVersion();
   const checksum = schemaChecksum();
   const engine = new Engine({ config, exercise, strategyName: selection.strategy.name, previous: journal.previous,
-    sink: {
+    sink: terminalSink({
       append: async entry => { await journal.append(entry); },
       resolve: (runId, stationId) => journal.resolve(runId, stationId),
-    },
+    }),
     identity: s => {
+      terminalStation = s.self_station_id;
       unlock = lock(s.run_id, s.self_station_id);
       engine.record({ kind: 'manifest', payload: {
         server_run_id: s.run_id, station_id: s.self_station_id,
@@ -137,7 +140,7 @@ async function main() {
     },
     done: () => finish(true),
     fatal: diagnosis => { void engine.idle().then(() => finish(false, diagnosis)).catch(() => finish(false, diagnosis)); },
-    lifecycle: change => console.log(formatLifecycle(change)),
+    lifecycle: change => { if (terminalStationMatches(terminalStation)) console.log(formatLifecycle(change)); },
     controls: () => readControls(controlFile()),
   });
   const connect = () => {

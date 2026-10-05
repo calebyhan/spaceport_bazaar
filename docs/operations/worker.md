@@ -456,3 +456,48 @@ production drop ended at health 100; the low-stock case ended at health 45.
 The low-stock case depends on voluntary peer gifts and is not a solvency
 guarantee. Schema SHA-256:
 `3e5d7631db9577c84c7035d384e75d412d255d3bdcfbb37d2247ca568786f351`.
+
+## Terminal trade activity
+
+Terminal activity defaults to **P09 only**, including in multi-planet simulations.
+Set `BAZAAR_TERMINAL_STATION` to another station to inspect it; this display filter
+does not change which planet the worker controls. Runs without P09 print no
+planet summaries by default. Test summaries and process errors remain visible.
+
+Worker runs print one stable summary per 10 simulation ticks, rather than scrolling
+individual decisions. The same view appears during tournaments and the exchange,
+validator, and one-second integration tests. A standalone `sim:server` hosts the
+market; run a worker in another terminal to see that planet's summaries.
+
+```text
+P09 · balanced · Ticks 20–30 / 120
+Health: start 100 → end 100
+Inventory at end: 12 water · 8 food · 15 components
+Trades completed: 4
+  P02: 3 trades — gave 6 water → received 6 food
+  P03: 1 trades — gave 2 water → received 2 components
+Offers pending now: 2 | Expired this interval: 1 | Trade requests rejected this interval: 0
+```
+
+A normally observed 120-tick run produces 12 blocks (0–10 through 110–120).
+Each block summarizes newly observed settlements and expirations since the last
+block, groups trade quantities by peer from our perspective, and uses the latest
+inventory and pending-offer count. Given/received totals cover
+only completed trades with that peer during the interval; zero quantities are
+omitted.
+Rejections count trade commands, not adverts.
+Intervals with no trades still print. A skipped snapshot or late start shows the
+actual observed tick span rather than inventing missing history. Historical
+transactions on the initial snapshot are not counted as new trades.
+
+Health loss and stale/disconnected/failed lifecycle alerts appear immediately.
+End-of-run, abort, or shutdown prints the remaining partial interval once.
+The output appends without clearing previous blocks. Dashboard logs and durable
+journals retain their full detail; only terminal presentation is aggregated.
+
+Set `BAZAAR_TERMINAL_LOG=0` to suppress trade activity (connection status and test
+summaries remain). Terminal display uses a bounded, deferred buffer and does not
+wait for stdout to drain before trading. A slow terminal can skip display lines,
+with a notice on recovery; the durable journal remains the full audit record.
+Terminal output still consumes CPU and can affect timing measurements, so use
+the same logging setting when comparing runs.
