@@ -15,8 +15,11 @@ interface Outcome { code: number | null; output: string }
 type React = (output: string, child: ChildProcess) => void;
 
 function worker(env: Record<string, string>, react: React = () => {}, timeoutMs = 30000): Promise<Outcome> {
-  const child = spawn(process.execPath, ['--import', 'tsx', 'worker/main.ts'], { env: {
-    ...process.env, BAZAAR_STRATEGY: undefined, BAZAAR_ENV_FILE: '', BAZAAR_TOKEN: '', BAZAAR_CREDENTIAL_FILE: '', BAZAAR_ENDPOINT: '', BAZAAR_JOURNAL: '', ...env } });
+  const child = spawn(process.execPath, ['--import', 'tsx', 'worker/main.ts', '--strategy', 'baseline'], { env: {
+    // These fixtures control P01 and assert its lifecycle; do not inherit the
+    // operator's P09 display filter or saved dashboard controls.
+    ...process.env, BAZAAR_STATION_ID: 'P01', BAZAAR_TERMINAL_STATION: 'P01',
+    BAZAAR_CONTROL_FILE: join(env.BAZAAR_JOURNAL_DIR, 'controls.json'), BAZAAR_STRATEGY: undefined, BAZAAR_ENV_FILE: '', BAZAAR_TOKEN: '', BAZAAR_CREDENTIAL_FILE: '', BAZAAR_ENDPOINT: '', BAZAAR_JOURNAL: '', ...env } });
   let output = '';
   return new Promise(resolve => {
     const read = (chunk: Buffer) => { output += chunk; react(output, child); };
