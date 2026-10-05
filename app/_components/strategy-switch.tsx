@@ -8,13 +8,13 @@ export function StrategySwitch() {
     <section className="control" aria-label="Worker strategy">
       <div>
         <p className="label">Strategy for next worker · {selected}</p>
-        <p className="hint">Choose before starting the worker. Select baseline, 50% surplus, 25% surplus, or balanced supply. Changes apply on restart; an explicit --strategy flag overrides this choice.</p>
+        <p className="hint">Choose before starting the worker. Select baseline, the nine-client class strategy, 50% surplus, 25% surplus, or balanced supply. Changes apply on restart; an explicit --strategy flag overrides this choice.</p>
       </div>
       {listStrategies().map(strategy => (
         <form action={setStrategy} key={strategy.name}>
           <input type="hidden" name="strategy" value={strategy.name} />
           <button type="submit" aria-pressed={selected === strategy.name} title={strategy.description}>
-            {{ baseline: "Baseline", surplus50: "50% surplus", surplus25: "25% surplus", balanced: "Balanced supply" }[strategy.name]}
+            {{ baseline: "Baseline", class25: "Class: 9 clients · 25%", surplus50: "50% surplus", surplus25: "25% surplus", balanced: "Balanced supply" }[strategy.name]}
           </button>
         </form>
       ))}

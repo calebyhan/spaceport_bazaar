@@ -25,6 +25,7 @@ npm run worker -- --list-strategies
 | Name | Behavior |
 | --- | --- |
 | `baseline` | Existing reserve-preserving trading policy; the default. |
+| `class25` | Nine-client, one-second-tick, 25%-surplus class demonstration. Uses the validated market-5 behavior with independent defaults/version and generosity fixed off. |
 | `surplus50` | Par exchanges, a 16-tick replenishment target, 2-tick reserve, 6-unit lots and fair distribution. |
 | `surplus25` | Par exchanges, a 20-tick target, 4-tick reserve and smaller 3-unit lots. |
 | `balanced` | Par exchanges, an 8-tick target, 2-tick reserve, 2-unit lots and no extra stockpile target. |
@@ -39,7 +40,7 @@ implemented policies and the logging/timing investigation.
 The baseline has a generous mode you can turn on and off **while the worker
 runs**, from the switch at the top of the dashboard's
 [live view](../setup/dashboard.md). It takes effect from the worker's next
-decision; no restart is needed. The new survival policies always use cooperative par trading independently of this
+decision; no restart is needed. Class25 keeps generosity off; surplus50, surplus25 and balanced always use cooperative par trading independently of this
 baseline switch. While it is on, the baseline:
 
 - asks only at par (1:1) instead of opening at a premium;
@@ -228,3 +229,7 @@ expected-action mismatches, malformed inputs, environment/CLI precedence,
 strategy-specific recovery, and swapping transport/log sinks without changing
 the trading policy. The supplied scenario is a deterministic decision test,
 not evidence of profitability in arbitrary markets.
+
+Class25 starts with the behavior validated in the [baseline class trials](../reference/baseline-class-validation.md). Baseline was not retuned by that validation; it remains market-5 with its live generosity switch. Class25 is a separate entry for future class-specific tuning, not a guarantee of survival on every server or production schedule.
+
+A [dedicated class25 test](../reference/class25-results.json) also passed: nine independent clients, 120 one-second ticks, 25% surplus, 30 initial units per resource, seed 1. All nine survived with zero shortage ticks, 192 settled exchanges, zero stale/deadline events, and 246.2 ms snapshot-to-send p99. The class server and spreadsheet credentials remain unverified.

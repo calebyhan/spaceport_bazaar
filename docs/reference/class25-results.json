@@ -1,0 +1,115 @@
+{
+  "scope": "Local simulation only; not class-server verification",
+  "command": "npm run test:one-second -- --strategy class25 --surplus 25 --seeds 1 --duration 120 --planets 9 --stock 30 --require-survival",
+  "trials": [
+    {
+      "strategy": "class25",
+      "seed": 1,
+      "surplus": 25,
+      "tickMs": 1000,
+      "duration": 120,
+      "planets": 9,
+      "startingStock": 30,
+      "wallMs": 122094.980942,
+      "serverClockMs": 120098.51275600001,
+      "serverWallClockMs": 133420,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "totalShortageTicks": 0,
+      "transactions": 192,
+      "sent": 1363,
+      "cancelled": 643,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 5516,
+        "p95Ms": 10.172119140625,
+        "p99Ms": 16.167236328125,
+        "maxMs": 38.80078125
+      },
+      "response": {
+        "samples": 1363,
+        "p95Ms": 110.728759765625,
+        "p99Ms": 202.408203125,
+        "maxMs": 320.768310546875
+      },
+      "queue": {
+        "samples": 5556,
+        "p95Ms": 83.955078125,
+        "p99Ms": 150.289794921875,
+        "maxMs": 1122.958984375
+      },
+      "snapshotToSend": {
+        "samples": 1363,
+        "p95Ms": 137.09182596206665,
+        "p99Ms": 246.23638200759888,
+        "maxMs": 971.1159549951553,
+        "overOneSecond": 0
+      },
+      "heartbeatGap": {
+        "samples": 20011,
+        "p95Ms": 437.59573996067047,
+        "p99Ms": 531.3372430801392,
+        "maxMs": 948.5094549655914
+      },
+      "strategyVersion": "class25-1",
+      "stations": [
+        {
+          "station_id": "P01",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P02",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P03",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P04",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P05",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P06",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P07",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P08",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P09",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        }
+      ]
+    }
+  ]
+}

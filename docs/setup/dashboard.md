@@ -59,10 +59,10 @@ elsewhere. Only files found there can be opened.
 
 ## Strategy selection and health
 
-The strategy buttons select baseline, 50% surplus, 25% surplus or balanced supply
+The strategy buttons select baseline, Class: 9 clients · 25%, 50% surplus, 25% surplus or balanced supply
 for the next worker process. An explicit CLI `--strategy` takes precedence.
-Generosity is a live baseline setting; the three survival policies always use
-cooperative par trading. See [strategy selection](../operations/strategies.md).
+Generosity is a live baseline setting. Class25 keeps it off; surplus50, surplus25
+and balanced always use cooperative par trading. See [strategy selection](../operations/strategies.md).
 
 `GET /api/health` reports process liveness and `persistence: "local-journal"`.
 It does not claim the worker is connected or the disk is writable; the live view

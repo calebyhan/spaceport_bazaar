@@ -287,12 +287,13 @@ test('strategy selection is available before startup, persists, and preserves ge
   expect(readControls()).toEqual({ generous: false, strategy: 'baseline' });
 });
 
-test.each(['surplus50', 'surplus25', 'balanced'])('the dashboard saves %s for the next worker without changing generosity', async strategy => {
+test.each(['class25', 'surplus50', 'surplus25', 'balanced'])('the dashboard saves %s for the next worker without changing generosity', async strategy => {
   const form = new FormData(); form.set('strategy', strategy);
   await setStrategy(form);
   expect(readControls()).toEqual({ strategy, generous: false });
   const page = await html(LivePage({ searchParams: Promise.resolve({}) }));
   expect(page).toContain(`Strategy for next worker · ${strategy}`);
+  expect(page).toContain('Class: 9 clients · 25%');
   expect(page).toContain('50% surplus'); expect(page).toContain('25% surplus'); expect(page).toContain('Balanced supply');
   form.set('generous', 'on'); await setGenerous(form);
   expect(readControls()).toEqual({ strategy, generous: true });

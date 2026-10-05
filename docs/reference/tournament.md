@@ -39,9 +39,9 @@ line per trial. `scoreboard.json` keeps every trial's server report.
   rotation of opponents. This answers: *how does this strategy do for us
   when we do not control what classmates run?*
 
-Baseline, surplus50, surplus25 and balanced are registered. The defaults still
-use baseline; pass `--candidates baseline,surplus50,surplus25,balanced` to compare
-all four. The former par, greedy and passive opponents have been removed. The
+Baseline, class25, surplus50, surplus25 and balanced are registered. The defaults still
+use baseline; pass `--candidates baseline,class25,surplus50,surplus25,balanced` to compare
+all five. The former par, greedy and passive opponents have been removed. The
 historical results below describe the retired catalog. See the
 [one-second assessment](one-second-survival.md) for current policy behavior.
 

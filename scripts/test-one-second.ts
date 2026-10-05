@@ -10,6 +10,7 @@ import { createSimulation } from '../worker/sim/setup';
 import type { EconomyOptions } from '../worker/sim/economy';
 import { defaultEconomy } from '../worker/sim/economy';
 import { json } from '../worker/serialization';
+import { getStrategy } from '../worker/strategies';
 
 async function processTrial(economy: EconomyOptions, strategy: string, dir: string) {
   // Refuse to mix new measurements with journals from an earlier trial.
@@ -58,9 +59,16 @@ async function processTrial(economy: EconomyOptions, strategy: string, dir: stri
 }
 
 async function main() {
-  const { values } = parseArgs({ options: { out: { type: 'string' }, duration: { type: 'string', default: '60' }, planets: { type: 'string', default: '9' }, stock: { type: 'string', default: '10' } } });
+  const { values } = parseArgs({ options: { out: { type: 'string' }, duration: { type: 'string', default: '60' }, planets: { type: 'string', default: '9' }, stock: { type: 'string', default: '10' }, strategy: { type: 'string' }, surplus: { type: 'string' }, seeds: { type: 'string', default: '1' }, 'require-survival': { type: 'boolean' } } });
   const duration = Number(values.duration), planets = Number(values.planets), stock = Number(values.stock);
   if (![duration, planets, stock].every(Number.isSafeInteger) || duration < 5 || duration > 1000 || planets < 3 || planets > 30 || stock < 0) throw new Error('Invalid duration, planets or stock');
+  const seeds = values.seeds.split(',').map(Number);
+  if (!values.seeds.split(',').every(seed => /^[0-9]+$/.test(seed)) || seeds.some(seed => !Number.isSafeInteger(seed) || seed < 0 || seed > 0xffffffff) || new Set(seeds).size !== seeds.length) throw new Error('Seeds must be distinct unsigned 32-bit integers');
+  if ((values.strategy === undefined) !== (values.surplus === undefined)) throw new Error('Use --strategy and --surplus together');
+  const selected = values.strategy === undefined ? undefined : getStrategy(values.strategy).name;
+  const surplusValue = Number(values.surplus);
+  if (selected && (!Number.isSafeInteger(surplusValue) || surplusValue < 0 || surplusValue > 1000)) throw new Error('Invalid surplus');
+  const cases = selected ? [[surplusValue, selected] as const] : [[50, 'baseline'], [50, 'surplus50'], [25, 'baseline'], [25, 'surplus25'], [0, 'baseline'], [0, 'balanced']] as const;
   const out = values.out ?? join('.local', 'one-second', new Date().toISOString().replace(/[:.]/g, '-'));
   mkdirSync(out, { recursive: true });
   const percentile = (values: number[], fraction: number) => {
@@ -68,12 +76,12 @@ async function main() {
     return sorted.length ? sorted[Math.ceil(sorted.length * fraction) - 1] : null;
   };
   const trials = [];
-  for (const [surplus, policy] of [[50, 'surplus50'], [25, 'surplus25'], [0, 'balanced']] as const) {
-    for (const strategy of ['baseline', policy]) {
-      const dir = join(out, `${surplus}-${strategy}`);
-      console.log(`Starting ${strategy}, surplus ${surplus}%, ${planets} planets, ${duration} one-second ticks`);
+  for (const seed of seeds) {
+    for (const [surplus, strategy] of cases) {
+      const dir = join(out, `${surplus}-${strategy}-seed${seed}`);
+      console.log(`Starting ${strategy}, seed ${seed}, surplus ${surplus}%, ${planets} planets, ${duration} one-second ticks`);
       const started = performance.now();
-      const result = await processTrial({ ...defaultEconomy, planets, durationTicks: BigInt(duration), surplusPct: BigInt(surplus), startingStock: BigInt(stock), blockTicks: Math.floor(duration / 5), seed: 1 }, strategy, dir);
+      const result = await processTrial({ ...defaultEconomy, planets, durationTicks: BigInt(duration), surplusPct: BigInt(surplus), startingStock: BigInt(stock), blockTicks: Math.floor(duration / 5), seed }, strategy, dir);
       const wallMs = performance.now() - started;
       const decisions: number[] = [], responses: number[] = [], queues: number[] = [], snapshotToSend: number[] = [], heartbeats: number[] = [];
       let sent = 0, cancelled = 0, deadlines = 0, stale = 0;
@@ -100,8 +108,9 @@ async function main() {
         }
       }
       const timing = (samples: number[]) => ({ samples: samples.length, p95Ms: percentile(samples, .95), p99Ms: percentile(samples, .99), maxMs: percentile(samples, 1) });
-      const trial = { strategy, surplus, tickMs: 1000, duration, planets, startingStock: stock, wallMs, serverClockMs: result.clockMs, serverWallClockMs: result.wallClockMs,
+      const trial = { strategy, seed, surplus, tickMs: 1000, duration, planets, startingStock: stock, wallMs, serverClockMs: result.clockMs, serverWallClockMs: result.wallClockMs,
         collectiveSuccess: result.report.collective_success, survivors: result.report.stations.filter(s => s.survived).length,
+        totalShortageTicks: result.report.stations.reduce((n, s) => n + Number(s.shortage_ticks), 0),
         transactions: result.report.transactions, sent, cancelled, deadlines, stale, failures: result.failures,
         decision: timing(decisions), response: timing(responses), queue: timing(queues), snapshotToSend: { ...timing(snapshotToSend), overOneSecond: snapshotToSend.filter(ms => ms >= 1000).length }, heartbeatGap: timing(heartbeats), report: result.report };
       trials.push(trial);
@@ -110,7 +119,7 @@ async function main() {
     }
   }
   console.log(`Evidence: ${out}/results.json`);
-  if (trials.some(t => t.failures.length || t.sent === 0 || t.transactions === 0 || t.deadlines || t.stale
+  if (trials.some(t => (values['require-survival'] && !t.collectiveSuccess) || t.failures.length || t.sent === 0 || t.transactions === 0 || t.deadlines || t.stale
     || t.snapshotToSend.samples !== t.sent || t.snapshotToSend.p99Ms === null || t.snapshotToSend.p99Ms >= 1000
     || !Number.isFinite(t.serverClockMs) || Math.abs(t.serverClockMs - duration * 1000) > duration * 100)) process.exitCode = 1;
 

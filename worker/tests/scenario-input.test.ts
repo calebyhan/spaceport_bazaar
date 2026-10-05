@@ -74,7 +74,7 @@ test.each([
   await expect(checkScenario(value)).rejects.toThrow();
 });
 
-test.each(['surplus50', 'surplus25', 'balanced'])('offline %s uses the same preset as the live engine', async strategy => {
+test.each(['class25', 'surplus50', 'surplus25', 'balanced'])('offline %s uses the same preset as the live engine', async strategy => {
   const value = fixture(); value.expected[strategy] = value.expected.baseline;
   const report = await checkScenario(value, strategy);
   expect(report.passed).toBe(true);

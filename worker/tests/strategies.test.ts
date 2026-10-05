@@ -10,11 +10,11 @@ const engines: Engine[] = [];
 afterEach(async () => { for (const e of engines) { e.stop(); await e.idle(); } engines.length = 0; });
 const input = () => ({ snapshot: { ...snapshot(), offers: { items: [offer()] } }, pending: [], memory: { attempted: {} }, config: defaultConfig });
 
-test('catalog preserves baseline and adds the three survival policies', () => {
+test('catalog preserves baseline and offers dedicated scenario policies', () => {
   const value = input(), before = structuredClone(value);
   expect(getStrategy().decide(value).action).toEqual({ kind: 'accept', body: { offer_id: 'gift' } });
   expect(value).toEqual(before);
-  expect(listStrategies().map(s => s.name)).toEqual(['baseline', 'surplus50', 'surplus25', 'balanced']);
+  expect(listStrategies().map(s => s.name)).toEqual(['baseline', 'class25', 'surplus50', 'surplus25', 'balanced']);
 });
 test('baseline follows the live generous switch and asks only at par while it is on', () => {
   expect(getStrategy().decide(input()).explanation).toMatchObject({ generous: false, config: { maxPremiumPct: 50n } });
@@ -42,7 +42,7 @@ test.each([
 ] as const)('invalid or conflicting options fail before startup: %j', (args, env) => {
   expect(() => workerOptions([...args], env)).toThrow();
 });
-test.each(['baseline', 'surplus50', 'surplus25', 'balanced'])('worker thread executes the selected %s strategy', async name => {
+test.each(['baseline', 'class25', 'surplus50', 'surplus25', 'balanced'])('worker thread executes the selected %s strategy', async name => {
   const executor = new StrategyExecutor(name);
   try {
     const result = await executor.evaluate(input(), 2000, () => {});
@@ -97,4 +97,16 @@ test('the engine reads live controls before each decision and hands them to the 
   await e.idle();
   const decision = records.find(record => record.kind === 'decision' && (record.payload as { source: string }).source === 'policy');
   expect((decision?.payload as { explanation: { generous: boolean } }).explanation.generous).toBe(true);
+});
+
+test('class25 preserves the validated non-generous baseline decisions with its own version and defaults', () => {
+  const baseline = getStrategy('baseline'), selected = getStrategy('class25');
+  expect(selected.defaults).not.toBe(baseline.defaults);
+  expect({ ...selected.defaults, version: baseline.version }).toEqual(baseline.defaults);
+  for (const generous of [false, true]) {
+    const decision = selected.decide({ ...input(), config: selected.defaults, controls: { generous } });
+    const reference = baseline.decide({ ...input(), config: baseline.defaults, controls: { generous: false } });
+    expect(decision).toEqual({ ...reference, explanation: { ...reference.explanation, policyVersion: 'class25-1', config: { ...baseline.defaults, version: 'class25-1' } } });
+  }
+  expect(baseline.version).toBe('market-5');
 });

@@ -1,0 +1,451 @@
+{
+  "scope": "Local simulation only; not a class-server verification",
+  "strategy": "baseline",
+  "strategyVersion": "market-5",
+  "settings": {
+    "planets": 9,
+    "tickMs": 1000,
+    "durationTicks": 120,
+    "surplusPct": 25,
+    "startingStockPerResource": 30,
+    "upkeepPerResourcePerTick": 1,
+    "productionBlockTicks": 24,
+    "generous": false
+  },
+  "command": "npm run test:one-second -- --strategy baseline --surplus 25 --seeds 1,2,3 --duration 120 --planets 9 --stock 30 --require-survival",
+  "trials": [
+    {
+      "strategy": "baseline",
+      "seed": 1,
+      "surplus": 25,
+      "tickMs": 1000,
+      "duration": 120,
+      "planets": 9,
+      "startingStock": 30,
+      "wallMs": 123255.86964100001,
+      "serverClockMs": 120115.932429,
+      "serverWallClockMs": 132744,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "totalShortageTicks": 0,
+      "transactions": 197,
+      "sent": 1702,
+      "cancelled": 861,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 6284,
+        "p95Ms": 9.680908203125,
+        "p99Ms": 17.725341796875,
+        "maxMs": 75.1611328125
+      },
+      "response": {
+        "samples": 1702,
+        "p95Ms": 97.44384765625,
+        "p99Ms": 167.77099609375,
+        "maxMs": 356.132080078125
+      },
+      "queue": {
+        "samples": 6335,
+        "p95Ms": 118.635986328125,
+        "p99Ms": 268.452392578125,
+        "maxMs": 1178.53369140625
+      },
+      "snapshotToSend": {
+        "samples": 1702,
+        "p95Ms": 198.073912024498,
+        "p99Ms": 462.1263769865036,
+        "maxMs": 988.035943031311,
+        "overOneSecond": 0
+      },
+      "heartbeatGap": {
+        "samples": 22375,
+        "p95Ms": 329.44577193260193,
+        "p99Ms": 663.3300139904022,
+        "maxMs": 1170.037919998169
+      },
+      "stations": [
+        {
+          "station_id": "P01",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P02",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P03",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P04",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P05",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P06",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P07",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P08",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P09",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        }
+      ]
+    },
+    {
+      "strategy": "baseline",
+      "seed": 2,
+      "surplus": 25,
+      "tickMs": 1000,
+      "duration": 120,
+      "planets": 9,
+      "startingStock": 30,
+      "wallMs": 122985.15567500002,
+      "serverClockMs": 120101.45039999997,
+      "serverWallClockMs": 133084,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "totalShortageTicks": 10,
+      "transactions": 187,
+      "sent": 1359,
+      "cancelled": 728,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 5512,
+        "p95Ms": 12.60009765625,
+        "p99Ms": 21.622802734375,
+        "maxMs": 56.776123046875
+      },
+      "response": {
+        "samples": 1359,
+        "p95Ms": 59.720947265625,
+        "p99Ms": 109.9423828125,
+        "maxMs": 234.46337890625
+      },
+      "queue": {
+        "samples": 5531,
+        "p95Ms": 161.046875,
+        "p99Ms": 407.349853515625,
+        "maxMs": 1438.904296875
+      },
+      "snapshotToSend": {
+        "samples": 1359,
+        "p95Ms": 253.02747201919556,
+        "p99Ms": 683.3377510309219,
+        "maxMs": 1124.9861979484558,
+        "overOneSecond": 3
+      },
+      "heartbeatGap": {
+        "samples": 19923,
+        "p95Ms": 388.3657410144806,
+        "p99Ms": 634.6794719696045,
+        "maxMs": 1000.3666650056839
+      },
+      "stations": [
+        {
+          "station_id": "P01",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P02",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P03",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P04",
+          "survived": true,
+          "final_health": "60",
+          "shortage_ticks": "10"
+        },
+        {
+          "station_id": "P05",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P06",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P07",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P08",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P09",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        }
+      ]
+    },
+    {
+      "strategy": "baseline",
+      "seed": 3,
+      "surplus": 25,
+      "tickMs": 1000,
+      "duration": 120,
+      "planets": 9,
+      "startingStock": 30,
+      "wallMs": 122462.63568200002,
+      "serverClockMs": 120076.442737,
+      "serverWallClockMs": 133324,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "totalShortageTicks": 0,
+      "transactions": 160,
+      "sent": 1127,
+      "cancelled": 543,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 4773,
+        "p95Ms": 11.765625,
+        "p99Ms": 21.51025390625,
+        "maxMs": 49.10986328125
+      },
+      "response": {
+        "samples": 1127,
+        "p95Ms": 36.85888671875,
+        "p99Ms": 68.55029296875,
+        "maxMs": 121.14013671875
+      },
+      "queue": {
+        "samples": 4790,
+        "p95Ms": 71.75390625,
+        "p99Ms": 124.20556640625,
+        "maxMs": 1603.2705078125
+      },
+      "snapshotToSend": {
+        "samples": 1127,
+        "p95Ms": 114.11739695072174,
+        "p99Ms": 166.1670960187912,
+        "maxMs": 996.323284983635,
+        "overOneSecond": 0
+      },
+      "heartbeatGap": {
+        "samples": 17513,
+        "p95Ms": 476.72679901123047,
+        "p99Ms": 685.3113559484482,
+        "maxMs": 1000.7329280376434
+      },
+      "stations": [
+        {
+          "station_id": "P01",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P02",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P03",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P04",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P05",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P06",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P07",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P08",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        },
+        {
+          "station_id": "P09",
+          "survived": true,
+          "final_health": "100",
+          "shortage_ticks": "0"
+        }
+      ]
+    }
+  ],
+  "launcherCheck": {
+    "seed": 4,
+    "scope": "Local end-to-end launcher verification; separate from the three latency trials",
+    "verified": true,
+    "survivors": 9,
+    "totalShortageTicks": 0,
+    "transactions": 184,
+    "reports": [
+      {
+        "station": "P01",
+        "code": 0,
+        "run": "sim-4-5e040669",
+        "observedStation": "P01",
+        "tick": "120",
+        "health": "100",
+        "duration": "120",
+        "tickMs": "1000",
+        "verified": true
+      },
+      {
+        "station": "P02",
+        "code": 0,
+        "run": "sim-4-5e040669",
+        "observedStation": "P02",
+        "tick": "120",
+        "health": "100",
+        "duration": "120",
+        "tickMs": "1000",
+        "verified": true
+      },
+      {
+        "station": "P03",
+        "code": 0,
+        "run": "sim-4-5e040669",
+        "observedStation": "P03",
+        "tick": "120",
+        "health": "100",
+        "duration": "120",
+        "tickMs": "1000",
+        "verified": true
+      },
+      {
+        "station": "P04",
+        "code": 0,
+        "run": "sim-4-5e040669",
+        "observedStation": "P04",
+        "tick": "120",
+        "health": "100",
+        "duration": "120",
+        "tickMs": "1000",
+        "verified": true
+      },
+      {
+        "station": "P05",
+        "code": 0,
+        "run": "sim-4-5e040669",
+        "observedStation": "P05",
+        "tick": "120",
+        "health": "100",
+        "duration": "120",
+        "tickMs": "1000",
+        "verified": true
+      },
+      {
+        "station": "P06",
+        "code": 0,
+        "run": "sim-4-5e040669",
+        "observedStation": "P06",
+        "tick": "120",
+        "health": "100",
+        "duration": "120",
+        "tickMs": "1000",
+        "verified": true
+      },
+      {
+        "station": "P07",
+        "code": 0,
+        "run": "sim-4-5e040669",
+        "observedStation": "P07",
+        "tick": "120",
+        "health": "100",
+        "duration": "120",
+        "tickMs": "1000",
+        "verified": true
+      },
+      {
+        "station": "P08",
+        "code": 0,
+        "run": "sim-4-5e040669",
+        "observedStation": "P08",
+        "tick": "120",
+        "health": "100",
+        "duration": "120",
+        "tickMs": "1000",
+        "verified": true
+      },
+      {
+        "station": "P09",
+        "code": 0,
+        "run": "sim-4-5e040669",
+        "observedStation": "P09",
+        "tick": "120",
+        "health": "100",
+        "duration": "120",
+        "tickMs": "1000",
+        "verified": true
+      }
+    ]
+  }
+}
