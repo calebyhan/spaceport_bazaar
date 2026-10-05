@@ -41,3 +41,5 @@ in `setup/`, runtime procedures in `operations/`, specifications/design in
 The root README stays a short entry point. Root `AGENTS.md` and `CLAUDE.md` stay
 where coding tools discover them; the supplied artifact guide stays with its
 schema and binaries. Run `npm test` after moving documentation to check links.
+
+- [One-second survival design](reference/one-second-survival.md): timing diagnosis and proposed surplus-specific policies.

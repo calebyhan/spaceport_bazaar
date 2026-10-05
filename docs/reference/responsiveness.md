@@ -82,4 +82,16 @@ directory containing the validator report and worker journal. Coverage artifacts
 are written to `coverage/`.
 
 To inspect an actual run, start the worker and open `/live` or `/runs`. Compare
-timing categories independently.
+timing categories independently. For the independent-process one-second test:
+
+```sh
+npm run test:one-second
+```
+
+This runs six sequential trials (baseline and the relevant survival policy at
+50%, 25% and 0% surplus), each with nine worker processes, local fsync journals,
+and an independent loopback simulation clock at 1000 ms. It writes raw journals,
+worker output, server reports and timing summaries under `.local/one-second`.
+Defaults are 60 ticks, 10 initial units per resource and seed 1. Use `--duration`,
+`--planets`, `--stock`, and `--out` to vary the experiment. See the
+[assessment](one-second-survival.md) for measured results and limitations.

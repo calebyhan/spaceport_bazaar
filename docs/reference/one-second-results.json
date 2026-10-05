@@ -1,0 +1,361 @@
+{
+  "date": "2026-10-05",
+  "method": "Nine independent CLI workers, separate loopback server process, durable local journals; six sequential trials; seed 1; 60 ticks at 1000 ms; 10 initial units per resource. Latencies use process.hrtime monotonic timestamps.",
+  "evidenceDirectory": ".local/one-second/2026-10-05T17-04-58-415Z",
+  "limitations": [
+    "One seed and 60 ticks per condition; not a guarantee for live servers or longer runs.",
+    "Some trials overlapped repository checks; these are shared-host measurements.",
+    "The host wall clock advanced about 6.4 seconds more than the monotonic clock per trial. Clock corrections or host suspension were not independently distinguished; an external-host test is needed for a strict real-time guarantee.",
+    "Raw results-wall-clock.json preserves the initial wall-clock analysis. Its wallMs includes post-run analysis."
+  ],
+  "trials": [
+    {
+      "strategy": "baseline",
+      "surplus": 50,
+      "tickMs": 1000,
+      "duration": 60,
+      "planets": 9,
+      "startingStock": 10,
+      "serverClockMs": 60055.982597,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "transactions": 154,
+      "sent": 951,
+      "cancelled": 510,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 3664,
+        "p95Ms": 6.848388671875,
+        "p99Ms": 10.22607421875,
+        "maxMs": 21.0791015625
+      },
+      "response": {
+        "samples": 951,
+        "p95Ms": 42.737548828125,
+        "p99Ms": 73.77978515625,
+        "maxMs": 108.14208984375
+      },
+      "queue": {
+        "samples": 3690,
+        "p95Ms": 48.2802734375,
+        "p99Ms": 79.8935546875,
+        "maxMs": 755.548095703125
+      },
+      "snapshotToSend": {
+        "samples": 951,
+        "p95Ms": 69.714,
+        "p99Ms": 133.07,
+        "maxMs": 772.564,
+        "overOneSecond": 0
+      },
+      "heartbeatGap": {
+        "samples": 13014,
+        "p95Ms": 203.018,
+        "p99Ms": 770.942,
+        "maxMs": 927.272
+      },
+      "clock": "monotonic",
+      "totalHealthLost": 5,
+      "totalShortageTicks": 1,
+      "observedClockSpan": {
+        "trial": "50-baseline",
+        "firstTick": "0",
+        "lastTick": "60",
+        "wallSpanMs": 66458.0,
+        "monotonicSpanMs": 60052.705769
+      }
+    },
+    {
+      "strategy": "surplus50",
+      "surplus": 50,
+      "tickMs": 1000,
+      "duration": 60,
+      "planets": 9,
+      "startingStock": 10,
+      "serverClockMs": 60080.56032199999,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "transactions": 392,
+      "sent": 1421,
+      "cancelled": 726,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 6350,
+        "p95Ms": 4.649169921875,
+        "p99Ms": 7.630615234375,
+        "maxMs": 20.70849609375
+      },
+      "response": {
+        "samples": 1421,
+        "p95Ms": 122.54638671875,
+        "p99Ms": 226.201171875,
+        "maxMs": 367.36865234375
+      },
+      "queue": {
+        "samples": 6548,
+        "p95Ms": 44.5498046875,
+        "p99Ms": 72.94140625,
+        "maxMs": 986.593017578125
+      },
+      "snapshotToSend": {
+        "samples": 1421,
+        "p95Ms": 79.476,
+        "p99Ms": 123.141,
+        "maxMs": 999.718,
+        "overOneSecond": 0
+      },
+      "heartbeatGap": {
+        "samples": 22954,
+        "p95Ms": 40.292,
+        "p99Ms": 682.346,
+        "maxMs": 909.785
+      },
+      "clock": "monotonic",
+      "totalHealthLost": 10,
+      "totalShortageTicks": 2,
+      "observedClockSpan": {
+        "trial": "50-surplus50",
+        "firstTick": "0",
+        "lastTick": "60",
+        "wallSpanMs": 66490.0,
+        "monotonicSpanMs": 60068.189122
+      }
+    },
+    {
+      "strategy": "baseline",
+      "surplus": 25,
+      "tickMs": 1000,
+      "duration": 60,
+      "planets": 9,
+      "startingStock": 10,
+      "serverClockMs": 60056.57077999998,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "transactions": 141,
+      "sent": 897,
+      "cancelled": 466,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 3656,
+        "p95Ms": 7.83349609375,
+        "p99Ms": 12.729736328125,
+        "maxMs": 18.311767578125
+      },
+      "response": {
+        "samples": 897,
+        "p95Ms": 41.975830078125,
+        "p99Ms": 75.714599609375,
+        "maxMs": 124.955810546875
+      },
+      "queue": {
+        "samples": 3679,
+        "p95Ms": 53.145751953125,
+        "p99Ms": 79.25390625,
+        "maxMs": 1026.205322265625
+      },
+      "snapshotToSend": {
+        "samples": 897,
+        "p95Ms": 75.562,
+        "p99Ms": 127.117,
+        "maxMs": 938.477,
+        "overOneSecond": 0
+      },
+      "heartbeatGap": {
+        "samples": 13028,
+        "p95Ms": 230.354,
+        "p99Ms": 728.708,
+        "maxMs": 918.865
+      },
+      "clock": "monotonic",
+      "totalHealthLost": 45,
+      "totalShortageTicks": 9,
+      "observedClockSpan": {
+        "trial": "25-baseline",
+        "firstTick": "0",
+        "lastTick": "60",
+        "wallSpanMs": 66475.0,
+        "monotonicSpanMs": 60044.655644
+      }
+    },
+    {
+      "strategy": "surplus25",
+      "surplus": 25,
+      "tickMs": 1000,
+      "duration": 60,
+      "planets": 9,
+      "startingStock": 10,
+      "serverClockMs": 60485.774781000044,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "transactions": 467,
+      "sent": 1451,
+      "cancelled": 941,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 5602,
+        "p95Ms": 6.796875,
+        "p99Ms": 10.33203125,
+        "maxMs": 34.485595703125
+      },
+      "response": {
+        "samples": 1451,
+        "p95Ms": 342.67724609375,
+        "p99Ms": 432.414306640625,
+        "maxMs": 604.246826171875
+      },
+      "queue": {
+        "samples": 5926,
+        "p95Ms": 77.74169921875,
+        "p99Ms": 120.16845703125,
+        "maxMs": 1015.0400390625
+      },
+      "snapshotToSend": {
+        "samples": 1451,
+        "p95Ms": 132.235,
+        "p99Ms": 219.191,
+        "maxMs": 855.441,
+        "overOneSecond": 0
+      },
+      "heartbeatGap": {
+        "samples": 20073,
+        "p95Ms": 62.723,
+        "p99Ms": 766.235,
+        "maxMs": 937.56
+      },
+      "clock": "monotonic",
+      "totalHealthLost": 0,
+      "totalShortageTicks": 0,
+      "observedClockSpan": {
+        "trial": "25-surplus25",
+        "firstTick": "0",
+        "lastTick": "60",
+        "wallSpanMs": 66846.0,
+        "monotonicSpanMs": 60446.126726
+      }
+    },
+    {
+      "strategy": "baseline",
+      "surplus": 0,
+      "tickMs": 1000,
+      "duration": 60,
+      "planets": 9,
+      "startingStock": 10,
+      "serverClockMs": 60030.79089599999,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "transactions": 148,
+      "sent": 715,
+      "cancelled": 275,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 3179,
+        "p95Ms": 6.8251953125,
+        "p99Ms": 11.072021484375,
+        "maxMs": 21.94580078125
+      },
+      "response": {
+        "samples": 715,
+        "p95Ms": 77.123046875,
+        "p99Ms": 118.053955078125,
+        "maxMs": 193.945556640625
+      },
+      "queue": {
+        "samples": 3237,
+        "p95Ms": 38.55908203125,
+        "p99Ms": 55.2021484375,
+        "maxMs": 871.031494140625
+      },
+      "snapshotToSend": {
+        "samples": 715,
+        "p95Ms": 52.073,
+        "p99Ms": 704.734,
+        "maxMs": 880.239,
+        "overOneSecond": 0
+      },
+      "heartbeatGap": {
+        "samples": 11622,
+        "p95Ms": 343.739,
+        "p99Ms": 624.976,
+        "maxMs": 897.798
+      },
+      "clock": "monotonic",
+      "totalHealthLost": 280,
+      "totalShortageTicks": 47,
+      "observedClockSpan": {
+        "trial": "0-baseline",
+        "firstTick": "0",
+        "lastTick": "60",
+        "wallSpanMs": 66433.0,
+        "monotonicSpanMs": 60012.898916
+      }
+    },
+    {
+      "strategy": "balanced",
+      "surplus": 0,
+      "tickMs": 1000,
+      "duration": 60,
+      "planets": 9,
+      "startingStock": 10,
+      "serverClockMs": 60127.895574000024,
+      "collectiveSuccess": true,
+      "survivors": 9,
+      "transactions": 593,
+      "sent": 1907,
+      "cancelled": 879,
+      "deadlines": 0,
+      "stale": 0,
+      "failures": [],
+      "decision": {
+        "samples": 8707,
+        "p95Ms": 3.893310546875,
+        "p99Ms": 6.87744140625,
+        "maxMs": 18.181884765625
+      },
+      "response": {
+        "samples": 1907,
+        "p95Ms": 209.9951171875,
+        "p99Ms": 315.9609375,
+        "maxMs": 647.507568359375
+      },
+      "queue": {
+        "samples": 9093,
+        "p95Ms": 47.2509765625,
+        "p99Ms": 86.2783203125,
+        "maxMs": 901.05419921875
+      },
+      "snapshotToSend": {
+        "samples": 1907,
+        "p95Ms": 84.974,
+        "p99Ms": 117.013,
+        "maxMs": 953.767,
+        "overOneSecond": 0
+      },
+      "heartbeatGap": {
+        "samples": 31916,
+        "p95Ms": 42.436,
+        "p99Ms": 477.706,
+        "maxMs": 900.364
+      },
+      "clock": "monotonic",
+      "totalHealthLost": 20,
+      "totalShortageTicks": 4,
+      "observedClockSpan": {
+        "trial": "0-balanced",
+        "firstTick": "0",
+        "lastTick": "60",
+        "wallSpanMs": 66524.0,
+        "monotonicSpanMs": 60077.218631
+      }
+    }
+  ]
+}

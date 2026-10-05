@@ -28,7 +28,8 @@
     "verify:responsiveness": "npm run test:responsiveness && npm test && npm run build && npm run test:validator",
     "strategy:check": "tsx worker/check-strategy.ts",
     "test:strategies": "vitest run worker/tests/strategies.test.ts worker/tests/scenario-input.test.ts worker/tests/check-strategy.test.ts worker/tests/main.test.ts",
-    "test:mutations": "node scripts/test-mutations.mjs"
+    "test:mutations": "node scripts/test-mutations.mjs",
+    "test:one-second": "tsx scripts/test-one-second.ts"
   },
   "dependencies": {
     "long": "^5.3.2",

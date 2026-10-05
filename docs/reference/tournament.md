@@ -42,7 +42,8 @@ line per trial. `scoreboard.json` keeps every trial's server report.
 Baseline, surplus50, surplus25 and balanced are registered. The defaults still
 use baseline; pass `--candidates baseline,surplus50,surplus25,balanced` to compare
 all four. The former par, greedy and passive opponents have been removed. The
-historical results below describe the retired catalog.
+historical results below describe the retired catalog. See the
+[one-second assessment](one-second-survival.md) for current policy behavior.
 
 ## Scoring
 

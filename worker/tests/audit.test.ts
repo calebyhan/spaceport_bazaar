@@ -278,8 +278,8 @@ test('names and descriptions fall back safely for unknown values', () => {
 
 test('a real simulated run: every command names its decision and the report matches the server ledger', async () => {
   dir = await mkdtemp(join(tmpdir(), 'audit-run-'));
-  const { world, players, tokens } = createSimulation({ ...defaultEconomy, planets: 3, durationTicks: 10n, startingStock: 8n }, 150);
-  const server = await startSimServer({ world, tokens, tickMs: 150, autoStart: true });
+  const { world, players, tokens } = createSimulation({ ...defaultEconomy, planets: 3, durationTicks: 10n, startingStock: 8n }, 1000);
+  const server = await startSimServer({ world, tokens, tickMs: 1000, autoStart: true });
   try {
     await Promise.all(players.map(p => new Promise<void>(resolve => {
       const journal = new Journal(join(dir!, p.station_id));

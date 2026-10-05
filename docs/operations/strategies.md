@@ -30,7 +30,9 @@ npm run worker -- --list-strategies
 | `balanced` | Par exchanges, an 8-tick target, 2-tick reserve, 2-unit lots and no extra stockpile target. |
 
 The former observe, par, greedy and passive policies have been removed, including
-the simulation archetypes. Historical journals remain readable.
+the simulation archetypes. Historical journals remain readable. See the
+[one-second survival design](../reference/one-second-survival.md) for proposed
+implemented policies and the logging/timing investigation.
 
 ## Generous mode: a live switch
 
